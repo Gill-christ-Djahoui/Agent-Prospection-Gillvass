@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block titre %}Accueil{% endblock %}
+{% block titre_page %}Bonjour{% if identifiant_connecte %}, {{ identifiant_connecte }}{% endif %}{% endblock %}
+{% block sous_titre %}<p class="sous-titre-page">Voici où en est ta prospection et ce qui t'attend aujourd'hui.</p>{% endblock %}
+{% block entete_droite %}<a class="bouton" href="{{ url_for('campagnes') }}">Nouvelle campagne</a>{% endblock %}
+
+{% block contenu %}
+
+{% if tache_en_cours %}
+  <section class="panneau tache-en-cours">
+    <div class="tache-en-cours-tete">
+      <strong>{{ taches[0].libelle if taches and taches[0].id == tache_en_cours.id else tache_en_cours.libelle }} en cours</strong>
+      {% if tache_en_cours.campagne %}<span class="aide">· {{ tache_en_cours.campagne }}</span>{% endif %}
+    </div>
+    <progress max="100" value="{{ tache_en_cours.progression }}"></progress>
+    <p class="job-detail">{{ tache_en_cours.detail }}</p>
+  </section>
+{% endif %}
+
+{% if mise_en_route_faite < mise_en_route|length %}
+  <section class="panneau mise-en-route">
+    <div class="mise-en-route-tete">
+      <div>
+        <h2>Mise en route</h2>
+        <p class="aide">Les étapes se cochent toutes seules à mesure que tu avances.</p>
+      </div>
+      <span class="gros-chiffre"><strong>{{ mise_en_route_faite }}</strong> / {{ mise_en_route|length }}</span>
+    </div>
+    <progress max="{{ mise_en_route|length }}" value="{{ mise_en_route_faite }}" aria-label="Mise en route"></progress>
+    <ol class="etapes">
+      {% for e in mise_en_route %}
+        <li class="etape{% if e.fait %} fait{% endif %}">
+          <span class="etape-coche" aria-hidden="true">{% if e.fait %}✓{% else %}{{ loop.index }}{% endif %}</span>
+          {% if e.fait %}<span>{{ e.libelle }}</span>{% else %}<a href="{{ url_for(e.lien) }}">{{ e.libelle }}</a>{% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+  </section>
+{% endif %}
+
+{% if decisions %}
+  <h2 class="titre-section">Décisions recommandées</h2>
+  <div class="decisions">
+    {% for d in decisions %}
+      <div class="decision decision-{{ d.niveau }}">
+        <span class="chip chip-decision-{{ d.niveau }}">{{ {'attention': 'Attention', 'action': 'À faire', 'info': 'Info'}[d.niveau] }}</span>
+        <div>
+          <strong>{{ d.titre }}</strong>
+          <p>{{ d.detail }}</p>
+        </div>
+        {% if d.lien %}<a class="secondaire" href="{{ d.lien }}">{{ d.action or 'Voir' }}</a>{% endif %}
+      </div>
+    {% endfor %}
+    <a class="decisions-suite" href="{{ url_for('analyses') }}">Toutes les analyses et décisions →</a>
+  </div>
+{% endif %}
+
+<h2 class="titre-section">À faire maintenant</h2>
+<div class="cartes-faire">
+  {% for c in a_faire %}
+    <a class="carte-faire{% if not c.nombre %} calme{% endif %}" href="{{ url_for(c.lien) }}">
+      <span class="carte-faire-nombre">{{ c.nombre }}</span>
+      <span class="carte-faire-titre">{{ c.titre }}</span>
+      <span class="carte-faire-aide">{% if c.nombre %}{{ c.aide }}{% else %}Rien à faire pour le moment.{% endif %}</span>
+      <span class="carte-faire-action">{{ c.action }} →</span>
+    </a>
+  {% endfor %}
+</div>
+
+<h2 class="titre-section">Chiffres clés</h2>
+<div class="kpis">
+  <div class="kpi"><span class="kpi-valeur">{{ chiffres.prospects }}</span><span class="kpi-libelle">prospects en base</span></div>
+  <div class="kpi"><span class="kpi-valeur">{{ chiffres.envoyes }}</span><span class="kpi-libelle">emails envoyés</span></div>
+  <div class="kpi"><span class="kpi-valeur">{% if chiffres.taux_ouverture is none %}—{% else %}{{ chiffres.taux_ouverture }} %{% endif %}</span><span class="kpi-libelle">taux d'ouverture</span></div>
+  <div class="kpi"><span class="kpi-valeur">{{ chiffres.reponses }}</span><span class="kpi-libelle">réponses{% if chiffres.taux_reponse is not none %} ({{ chiffres.taux_reponse }} %){% endif %}</span></div>
+  <div class="kpi">
+    <span class="kpi-valeur">{{ chiffres.quota.envoyes }}<span class="kpi-sur"> / {{ chiffres.quota.plafond }}</span></span>
+    <span class="kpi-libelle">envois aujourd'hui</span>
+  </div>
+</div>
+
+<div class="deux-colonnes deux-colonnes-accueil">
+  <section class="panneau">
+    <h2>Entonnoir de prospection</h2>
+    {% if chiffres.prospects %}
+      <ul class="entonnoir">
+        {% for e in entonnoir %}
+          <li>
+            <span class="entonnoir-libelle">{{ e.libelle }}</span>
+            <span class="entonnoir-piste"><span class="entonnoir-barre entonnoir-{{ e.statut }}" style="width: {{ e.largeur }}%"></span></span>
+            <span class="entonnoir-nombre">{{ e.nombre }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="vide">Aucun prospect pour l'instant. Lance un scan depuis une campagne ou importe un fichier CSV : l'entonnoir se remplira ici.</p>
+    {% endif %}
+  </section>
+
+  <section class="panneau">
+    <h2>Campagnes</h2>
+    {% if campagnes %}
+      <ul class="liste-simple">
+        {% for c in campagnes %}
+          <li>
+            <a href="{{ url_for('campagne', campagne_id=c.id) }}">{{ c.nom }}</a>
+            <span class="aide">{{ c.nb_zones }} zone{{ 's' if c.nb_zones > 1 }} · {{ c.nb_prospects }} prospect{{ 's' if c.nb_prospects > 1 }} · {{ c.nb_envois }} envoi{{ 's' if c.nb_envois > 1 }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="vide">Aucune campagne. Crée-en une, ou pars d'un des trois modèles livrés.</p>
+      <div class="actions"><a class="bouton" href="{{ url_for('campagnes') }}">Créer une campagne</a></div>
+    {% endif %}
+  </section>
+</div>
+
+<section class="panneau">
+  <h2>Activité récente</h2>
+  {% if taches %}
+    <ul class="activite">
+      {% for t in taches %}
+        <li>
+          <span class="chip chip-{{ 'echec' if t.statut == 'erreur' else ('active' if t.statut in ['en_cours', 'en_attente'] else 'envoye') }}">{{ t.libelle }}</span>
+          <span class="activite-detail" title="{{ t.detail }}">{{ t.detail or '—' }}</span>
+          <span class="aide">{{ t.quand }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="vide">Rien pour l'instant : scans, analyses, rédactions et envois apparaîtront ici.</p>
+  {% endif %}
+</section>
+{% endblock %}

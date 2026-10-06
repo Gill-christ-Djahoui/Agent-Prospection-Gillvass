@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block titre %}Appels{% endblock %}
+{% block titre_page %}Appels{% endblock %}
+{% block sous_titre %}<p class="sous-titre-page">Les prospects à appeler, du plus utile au moins utile. Pour chacun : le vrai problème constaté, un script de 4 lignes et le résultat de l'appel.</p>{% endblock %}
+
+{% block contenu %}
+<div class="filtres" id="appels-filtres">
+  <label>Campagne
+    <select id="f-campagne">
+      <option value="">Toutes</option>
+      {% for c in campagnes %}<option value="{{ c.id }}">{{ c.nom }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Contact
+    <select id="f-contact">
+      <option value="sans">Sans email (à appeler)</option>
+      <option value="avec">Avec email</option>
+      <option value="tous">Tous</option>
+    </select>
+  </label>
+  <label>État
+    <select id="f-etat">
+      {% for code, libelle in etats.items() %}<option value="{{ code }}">{{ libelle }}</option>{% endfor %}
+      <option value="tous">Tous</option>
+    </select>
+  </label>
+</div>
+
+<p class="compteurs-appels" id="appels-compteurs" role="status"></p>
+
+<table class="tableau tableau-appels" id="appels-tableau">
+  <thead>
+    <tr><th class="num">Score</th><th>Établissement</th><th>Téléphone</th><th>Problème repéré</th><th>Dernier appel</th><th></th></tr>
+  </thead>
+  <tbody id="appels-corps"></tbody>
+</table>
+<p class="aide" id="appels-limite" hidden></p>
+
+<dialog id="fiche-appel" class="fenetre fenetre-large" data-demain="{{ demain }}" data-aujourdhui="{{ aujourdhui }}" data-ia="{{ '1' if ia_prete else '' }}">
+  <div class="fenetre-contenu">
+    <div class="fiche-tete">
+      <h2 id="fa-nom"></h2>
+      <p class="aide" id="fa-meta"></p>
+    </div>
+    <p class="gros-numero"><a id="fa-tel" href="#"></a></p>
+    <ul class="puces" id="fa-problemes"></ul>
+
+    <div class="champ champ-large">
+      <label for="fa-script">Script d'appel</label>
+      <textarea id="fa-script" rows="8" placeholder="Pas encore de script : « Écrire avec l'IA » le prépare à partir du vrai problème constaté."></textarea>
+      <div class="actions">
+        <button type="button" class="secondaire" id="fa-generer">Écrire avec l'IA</button>
+        <button type="button" class="secondaire" id="fa-enregistrer-script">Enregistrer mes corrections</button>
+        <span class="resultat" id="fa-etat-script" role="status"></span>
+      </div>
+      {% if not ia_prete %}<p class="aide">L'IA n'est pas encore configurée (Réglages) : tu peux écrire ton script à la main.</p>{% endif %}
+    </div>
+
+    <h3 class="sous-titre">Résultat de l'appel</h3>
+    <div class="resultats-appel" id="fa-resultats" role="group" aria-label="Résultat de l'appel">
+      {% for code, libelle in resultats.items() %}
+        <button type="button" class="secondaire resultat-appel{% if code == 'pas_interesse' %} danger{% endif %}" data-resultat="{{ code }}">{{ libelle }}</button>
+      {% endfor %}
+    </div>
+    <div class="grille-champs" id="fa-champs-resultat" hidden>
+      <div class="champ" id="fa-bloc-rappel" hidden>
+        <label for="fa-rappel">Rappeler le</label>
+        <input id="fa-rappel" type="date" min="{{ aujourdhui }}">
+        <p class="erreur-champ" data-erreur-pour="rappel_le" hidden></p>
+      </div>
+      <div class="champ">
+        <label for="fa-note">Note (facultatif)</label>
+        <input id="fa-note" type="text" maxlength="1000" autocomplete="off" placeholder="Ex. : secrétaire joignable le matin">
+        <p class="erreur-champ" data-erreur-pour="note" hidden></p>
+      </div>
+    </div>
+    <p class="aide" id="fa-avertissement" hidden></p>
+    <div class="actions">
+      <button type="button" class="bouton" id="fa-valider" disabled>Enregistrer l'appel et passer au suivant</button>
+      <button type="button" class="secondaire" id="fa-fermer">Fermer</button>
+      <span class="resultat" id="fa-etat-appel" role="status"></span>
+    </div>
+
+    <h3 class="sous-titre">Historique</h3>
+    <ul class="journal-appels" id="fa-historique"></ul>
+  </div>
+</dialog>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='appels.js') }}"></script>{% endblock %}

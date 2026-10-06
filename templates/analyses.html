@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% from "_composants.html" import etat_vide %}
+{% block titre %}Analyses{% endblock %}
+{% block titre_page %}Analyses{% endblock %}
+{% block sous_titre %}<p class="sous-titre-page">Ce que disent tes résultats, et les décisions qui en découlent.</p>{% endblock %}
+{% block entete_droite %}
+  <div class="segments" role="group" aria-label="Période">
+    {% for valeur, libelle in [(None, 'Tout'), (7, '7 jours'), (30, '30 jours'), (90, '90 jours')] %}
+      <a class="segment{% if jours == valeur %} actif{% endif %}" href="{{ url_for('analyses') }}{% if valeur %}?jours={{ valeur }}{% endif %}">{{ libelle }}</a>
+    {% endfor %}
+  </div>
+{% endblock %}
+
+{% macro tableau_groupe(titre, aide, groupes, colonne, vide_texte) %}
+<section class="panneau">
+  <h2>{{ titre }}</h2>
+  {% if aide %}<p class="aide">{{ aide }}</p>{% endif %}
+  {% if groupes %}
+    {% set max_rep = (groupes | map(attribute='taux_reponse') | select('number') | list | max) or 1 %}
+    <table class="tableau tableau-analyse">
+      <thead><tr><th>{{ colonne }}</th><th class="num">Contactés</th><th class="num">Ouvertures</th><th class="num">Réponses</th><th class="col-barre"></th></tr></thead>
+      <tbody>
+        {% for g in groupes %}
+          <tr>
+            <td>{{ g.libelle or g.cle }}</td>
+            <td class="num">{{ g.contactes }}</td>
+            <td class="num">{{ g.taux_ouverture }} %</td>
+            <td class="num"><strong>{{ g.reponses }}</strong> <span class="aide">({{ g.taux_reponse }} %)</span></td>
+            <td class="col-barre"><span class="mini-piste"><span class="mini-barre" style="width: {{ (100 * (g.taux_reponse or 0) / max_rep) | round | int }}%"></span></span></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="vide">{{ vide_texte }}</p>
+  {% endif %}
+</section>
+{% endmacro %}
+
+{% block contenu %}
+
+<h2 class="titre-section">Décisions recommandées</h2>
+{% if recommandations %}
+  <div class="decisions">
+    {% for d in recommandations %}
+      <div class="decision decision-{{ d.niveau }}">
+        <span class="chip chip-decision-{{ d.niveau }}">{{ {'attention': 'Attention', 'action': 'À faire', 'info': 'Info'}[d.niveau] }}</span>
+        <div>
+          <strong>{{ d.titre }}</strong>
+          <p>{{ d.detail }}</p>
+          {% if d.preuve %}<p class="decision-preuve">Preuve : {{ d.preuve }}</p>{% endif %}
+        </div>
+        {% if d.lien %}<a class="secondaire" href="{{ d.lien }}">{{ d.action or 'Voir' }}</a>{% endif %}
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <section class="panneau"><p class="vide">Rien à signaler : aucune décision urgente pour le moment.</p></section>
+{% endif %}
+<p class="aide aide-methode">Ces conseils sont calculés par des règles prudentes sur tes propres envois : une comparaison n'est proposée que si l'écart est statistiquement crédible, et rien n'est conclu avant {{ echantillon_min }} contacts.</p>
+
+<h2 class="titre-section">Chiffres</h2>
+<div class="kpis">
+  <div class="kpi"><span class="kpi-valeur">{{ kpis.contactes }}</span><span class="kpi-libelle">prospects contactés ({{ kpis.emails }} emails, dont {{ kpis.relances }} relance{{ 's' if kpis.relances > 1 }})</span></div>
+  <div class="kpi"><span class="kpi-valeur">{% if kpis.taux_reponse is none %}—{% else %}{{ kpis.taux_reponse }} %{% endif %}</span><span class="kpi-libelle">taux de réponse ({{ kpis.reponses }})</span></div>
+  <div class="kpi"><span class="kpi-valeur">{% if kpis.taux_ouverture is none %}—{% else %}{{ kpis.taux_ouverture }} %{% endif %}</span><span class="kpi-libelle">taux d'ouverture (indicatif)</span></div>
+  <div class="kpi"><span class="kpi-valeur">{% if kpis.taux_rebond is none %}—{% else %}{{ kpis.taux_rebond }} %{% endif %}</span><span class="kpi-libelle">rebonds ({{ kpis.rebonds }})</span></div>
+  <div class="kpi"><span class="kpi-valeur">{{ kpis.desinscrits }}</span><span class="kpi-libelle">désinscriptions / plaintes</span></div>
+</div>
+
+<h2 class="titre-section">Analyste IA</h2>
+<section class="panneau" id="panneau-analyste" data-jours="{{ jours or '' }}">
+  <p class="aide">L'IA lit tes statistiques agrégées et te conseille. Elle ne reçoit <strong>aucun nom de prospect, email, téléphone ou site</strong> : seulement des chiffres, le nom de tes campagnes et le début des prompts. Ses conseils sont à vérifier.</p>
+  {% if not ia_prete %}
+    <p class="resultat statut-attention">Fournisseur d'IA non configuré. <a href="{{ url_for('reglages') }}">Compléter les Réglages</a>.</p>
+  {% endif %}
+  <div class="champ champ-large">
+    <label for="an-question">Une question précise ? (facultatif)</label>
+    <textarea id="an-question" rows="2" maxlength="600" placeholder="Exemple : pourquoi mes dentistes répondent moins que mes avocats ? Quel angle tester ensuite ?"></textarea>
+  </div>
+  <div class="actions">
+    <button type="button" class="bouton" id="btn-analyste" {% if not ia_prete or not kpis.contactes %}disabled{% endif %}>Analyser mes résultats</button>
+    <span class="resultat" id="resultat-analyste" role="status">{% if not kpis.contactes %}Il faut d'abord avoir envoyé des emails.{% endif %}</span>
+  </div>
+  <div class="rapport" id="rapport-courant" hidden></div>
+  {% if rapports %}
+    <details class="historique-rapports">
+      <summary>Analyses précédentes ({{ rapports|length }})</summary>
+      {% for r in rapports %}
+        <article class="rapport rapport-ancien">
+          <p class="aide">{{ r.date[:10] }}{% if r.jours %} · {{ r.jours }} jours{% endif %}{% if r.question %} · « {{ r.question }} »{% endif %}</p>
+          <div class="rapport-texte">{{ r.texte }}</div>
+        </article>
+      {% endfor %}
+    </details>
+  {% endif %}
+</section>
+
+{% if kpis.contactes %}
+<h2 class="titre-section">Détail par dimension</h2>
+<p class="aide aide-methode">Lis ces tableaux avec prudence quand un groupe compte moins de {{ echantillon_min // 2 }} contacts : un écart peut n'être que du hasard. Les réponses comptent plus que les ouvertures.</p>
+<div class="grille-analyses">
+  {{ tableau_groupe('Par campagne', '', tableaux.campagnes, 'Campagne', 'Aucune donnée.') }}
+  {{ tableau_groupe('Par angle de message', 'Compare tes prompts : c\'est ton principal levier.', tableaux.angles, 'Angle', 'Aucune donnée.') }}
+  {{ tableau_groupe('Par problème détecté', 'Quel problème du site déclenche le plus de réponses ?', tableaux.problemes, 'Problème', 'Aucune donnée.') }}
+  {{ tableau_groupe('Par tranche de score', 'Le score prédit-il les réponses ? Il devrait grimper avec la tranche.', tableaux.tranches, 'Score brut', 'Aucune donnée.') }}
+  {{ tableau_groupe('Par ville', '', tableaux.villes, 'Ville', 'Aucune donnée.') }}
+  {{ tableau_groupe('Par source de données', '', tableaux.sources, 'Source', 'Aucune donnée.') }}
+  {{ tableau_groupe('Par heure d\'envoi', 'Heure locale du premier envoi.', tableaux.heures, 'Heure', 'Aucune donnée.') }}
+  {{ tableau_groupe('Par jour d\'envoi', '', tableaux.jours, 'Jour', 'Aucune donnée.') }}
+</div>
+{% else %}
+<section class="panneau">
+  {{ etat_vide('envois', "Pas encore de résultats à analyser", "Dès que tes premiers emails seront partis, les chiffres, les comparaisons et les décisions apparaîtront ici.", url_for('envois'), "Aller aux envois") }}
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='analyses.js') }}"></script>{% endblock %}

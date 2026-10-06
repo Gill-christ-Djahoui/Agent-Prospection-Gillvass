@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% from "_composants.html" import etat_vide %}
+{% block titre %}Prospects{% endblock %}
+{% block titre_page %}Prospects{% endblock %}
+{% block sous_titre %}<p class="sous-titre-page">Les établissements trouvés, classés par besoin : les plus gros scores en premier.</p>{% endblock %}
+
+{% macro statut_libelle(statut) -%}
+  {{ {'nouveau': 'Nouveau', 'qualifie': 'Qualifié', 'ignore': 'Ignoré', 'message_pret': 'Message prêt',
+      'approuve': 'Approuvé', 'envoye': 'Envoyé', 'repondu': 'Répondu'}[statut] }}
+{%- endmacro %}
+
+{% block entete_droite %}
+  <button type="button" class="secondaire" id="ouvrir-import">Importer un CSV</button>
+  <button type="button" class="secondaire" id="btn-exporter" title="Exporte la sélection, ou toutes les lignes affichées avec les filtres appliqués">Exporter en CSV</button>
+  <p class="compteurs"><strong id="nb-affiches">{{ prospects|length }}</strong> affiché{{ 's' if prospects|length > 1 }}
+    sur {{ total }}</p>
+{% endblock %}
+
+{% block contenu %}
+{% if total > limite %}
+  <p class="alerte">Seuls les {{ limite }} prospects les mieux classés sont affichés (sur {{ total }}). Affine avec une campagne ou une ville.</p>
+{% endif %}
+
+<section class="panneau" id="panneau-import" hidden>
+  <h2>Importer des prospects depuis un fichier CSV</h2>
+  <p class="aide">Colonnes reconnues : <code>nom</code> (obligatoire), <code>ville</code>, <code>site</code>, <code>email</code>, <code>telephone</code>, <code>adresse</code>. Séparateur virgule, point-virgule ou tabulation ; encodage UTF-8 ou Excel. Les lignes entrent dans le circuit normal : analyse, score, rédaction, validation.</p>
+  <form id="form-import" class="ligne-import">
+    <label>Campagne qui recevra les prospects
+      <select id="import-campagne">
+        <option value="">— Choisir —</option>
+        {% for c in campagnes_import %}<option value="{{ c.id }}">{{ c.nom }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Fichier CSV <input type="file" id="import-fichier" accept=".csv,.txt,text/csv"></label>
+    <button type="submit" class="bouton">Importer le fichier</button>
+    <button type="button" class="secondaire" id="annuler-import">Fermer</button>
+  </form>
+  <div id="rapport-import" role="status"></div>
+</section>
+
+<dialog id="detail-analyse" class="fenetre">
+  <form method="dialog" class="fenetre-contenu">
+    <h2 id="da-titre"></h2>
+    <p class="aide" id="da-meta"></p>
+    <table class="tableau" id="da-tableau">
+      <thead><tr><th>Problème détecté</th><th class="num">Points</th></tr></thead>
+      <tbody id="da-corps"></tbody>
+      <tfoot><tr><th>Score brut</th><th class="num" id="da-total"></th></tr></tfoot>
+    </table>
+    <p class="aide" id="da-aide"></p>
+    <div class="champ champ-large">
+      <label for="da-notes">Notes (appels, contexte, prochaine étape)</label>
+      <textarea id="da-notes" rows="3" maxlength="5000" placeholder="Ex. : rappelé le 12/10, secrétaire joignable le matin"></textarea>
+    </div>
+    <div class="actions">
+      <button type="button" class="secondaire" id="da-enregistrer-note">Enregistrer la note</button>
+      <button class="bouton" value="fermer">Fermer</button>
+    </div>
+  </form>
+</dialog>
+
+<section class="panneau" id="panneau-redaction" data-job-id="{{ job.id if job else '' }}" data-actif="{{ '1' if job_actif else '' }}" {% if not job %}hidden{% endif %}>
+  <h2 id="redaction-titre">{% if job %}Rédaction — {{ {'en_attente': 'en attente…', 'en_cours': 'en cours…', 'termine': 'terminée', 'erreur': 'en erreur'}[job.statut] }}{% endif %}</h2>
+  <progress id="redaction-barre" max="100" value="{{ job.progression if job else 0 }}"></progress>
+  <p id="redaction-detail" class="job-detail{% if job and job.statut == 'erreur' %} statut-erreur{% endif %}">{{ job.detail if job else '' }}</p>
+  <p class="aide">Les messages générés sont à relire et approuver dans l'écran <a href="{{ url_for('messages') }}">Messages</a>.</p>
+</section>
+
+<div class="filtres" id="filtres">
+  <label>Campagne
+    <select id="f-campagne">
+      <option value="">Toutes</option>
+      {% for c in campagnes %}<option value="{{ c.id }}">{{ c.nom }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Ville
+    <select id="f-ville">
+      <option value="">Toutes</option>
+      {% for v in villes %}<option value="{{ v|lower }}">{{ v }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Statut
+    <select id="f-statut">
+      <option value="">Tous</option>
+      {% for code in ['nouveau', 'qualifie', 'ignore', 'message_pret', 'approuve', 'envoye', 'repondu'] %}
+        <option value="{{ code }}">{{ statut_libelle(code) }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Email
+    <select id="f-email">
+      <option value="">Tous</option>
+      <option value="avec">Avec email</option>
+      <option value="sans">Sans email (à appeler)</option>
+    </select>
+  </label>
+  <label>Adresse générique
+    <select id="f-generique">
+      <option value="">Toutes</option>
+      <option value="oui">Générique (gmail, orange…)</option>
+      <option value="non">Non générique</option>
+    </select>
+  </label>
+  <label>Recherche
+    <input type="search" id="f-texte" placeholder="Nom, ville, site…" autocomplete="off">
+  </label>
+</div>
+
+<div class="barre-actions" id="barre-actions" hidden>
+  <strong><span id="nb-selection">0</span> sélectionné(s)</strong>
+  <button type="button" class="bouton" id="btn-generer-lot">Générer les messages</button>
+  <button type="button" class="secondaire" id="btn-ignorer-lot">Ignorer</button>
+  <span class="resultat" id="resultat-lot" role="status"></span>
+</div>
+
+<table class="tableau tableau-prospects" id="tableau-prospects" data-seuil="{{ seuil }}">
+  <thead>
+    <tr>
+      <th class="col-coche"><input type="checkbox" id="tout-cocher" aria-label="Sélectionner toutes les lignes affichées"></th>
+      <th data-tri="nom" aria-sort="none">Établissement</th>
+      <th data-tri="ville">Ville</th>
+      <th>Site</th>
+      <th data-tri="email">Email</th>
+      <th>Problèmes détectés</th>
+      <th data-tri="score" data-numerique="1" class="num">Score</th>
+      <th data-tri="statut">Statut</th>
+      <th data-tri="envoi">Date d'envoi</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in prospects %}
+      <tr data-campagne="{{ p.campagne_id }}" data-ville="{{ (p.ville or '')|lower }}" data-statut="{{ p.statut }}"
+          data-email="{{ 'avec' if p.email else 'sans' }}" data-generique="{{ 'oui' if p.generique else 'non' }}"
+          data-nom="{{ p.nom|lower }}" data-score="{{ p.score }}" data-envoi="{{ p.date_envoi or '' }}"
+          data-id="{{ p.id }}" data-recherche="{{ (p.nom ~ ' ' ~ (p.ville or '') ~ ' ' ~ (p.site_domaine or '') ~ ' ' ~ (p.email or ''))|lower }}">
+        <td class="col-coche"><input type="checkbox" class="coche" aria-label="Sélectionner {{ p.nom }}"></td>
+        <td>{{ p.nom }}{% if p.notes %} <span class="badge" title="{{ p.notes }}">note</span>{% endif %}{% if not p.email and p.telephone %}<br><span class="code">Tél. {{ p.telephone }}</span>{% endif %}</td>
+        <td>{{ p.ville or '—' }}</td>
+        <td>{% if p.site %}<a href="{{ p.site }}" target="_blank" rel="noopener noreferrer">{{ p.site_domaine or p.site }}</a>{% else %}<span class="code">aucun site</span>{% endif %}</td>
+        <td>{% if p.email %}{{ p.email }}{% if p.generique %} <span class="badge" title="Adresse chez un fournisseur grand public : à toi de décider">générique</span>{% endif %}{% else %}<span class="code">introuvable</span>{% endif %}</td>
+        <td>{% if p.statut == 'nouveau' %}<span class="code">pas encore analysé</span>{% elif p.problemes_libelles %}{{ p.problemes_libelles|join(' · ') }}{% else %}—{% endif %}</td>
+        <td class="num score" title="Score brut : {{ p.score }}">{% if p.statut == 'nouveau' %}—{% else %}{{ [p.score, plafond]|min }}{% endif %}</td>
+        <td><span class="chip chip-{{ p.statut }}">{{ statut_libelle(p.statut) }}</span></td>
+        <td>{{ p.date_envoi[:10] if p.date_envoi else '—' }}</td>
+        <td class="actions-ligne">
+          {% if p.statut != 'nouveau' %}<button type="button" class="secondaire" data-detail="{{ p.id }}">Détail du score</button>{% endif %}
+          {% if p.statut in generables %}<button type="button" class="secondaire" data-generer="{{ p.id }}" title="Génère un message, même sous le seuil de score">Générer le message</button>{% endif %}
+          {% if p.statut == 'ignore' %}<button type="button" class="secondaire" data-qualifier="{{ p.id }}">Remettre en qualifié</button>
+          {% elif p.statut in ['nouveau', 'qualifie', 'message_pret', 'approuve'] %}<button type="button" class="secondaire" data-ignorer="{{ p.id }}">Ignorer</button>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    <tr class="ligne-vide" id="vide-prospects" {% if prospects %}hidden{% endif %}>
+      <td colspan="10" class="vide" id="texte-vide">
+        {% if total == 0 %}{{ etat_vide('prospects', "Aucun prospect pour l'instant", "Ouvre une campagne et lance un scan, ou importe un fichier CSV (bouton en haut de page).", url_for('campagnes'), "Aller aux campagnes") }}
+        {% else %}Aucun prospect ne correspond à ces filtres.{% endif %}
+      </td>
+    </tr>
+  </tbody>
+</table>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='prospects.js') }}"></script>{% endblock %}

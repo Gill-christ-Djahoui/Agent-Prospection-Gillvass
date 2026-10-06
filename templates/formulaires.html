@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block titre %}Formulaires{% endblock %}
+{% block titre_page %}Formulaires{% endblock %}
+{% block sous_titre %}<p class="sous-titre-page">Les prospects sans email dont le site a un formulaire de contact. L'application te prépare le message ; tu le colles toi-même dans le formulaire, depuis n'importe quel pays.</p>{% endblock %}
+
+{% block contenu %}
+<div class="filtres" id="formulaires-filtres">
+  <label>Campagne
+    <select id="f-campagne">
+      <option value="">Toutes</option>
+      {% for c in campagnes %}<option value="{{ c.id }}">{{ c.nom }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>État
+    <select id="f-etat">
+      {% for code, libelle in etats.items() %}<option value="{{ code }}">{{ libelle }}</option>{% endfor %}
+      <option value="tous">Tous</option>
+    </select>
+  </label>
+</div>
+
+<p class="compteurs-appels" id="formulaires-compteurs" role="status"></p>
+
+<table class="tableau tableau-appels" id="formulaires-tableau">
+  <thead>
+    <tr><th class="num">Score</th><th>Établissement</th><th>Problème repéré</th><th>Dernier contact</th><th></th></tr>
+  </thead>
+  <tbody id="formulaires-corps"></tbody>
+</table>
+<p class="aide" id="formulaires-limite" hidden></p>
+<p class="aide">Les formulaires sont repérés pendant l'exploration des sites (scan, analyse, import). Pour une campagne déjà scannée : « Chercher les emails et formulaires manquants » sur sa fiche.</p>
+
+<dialog id="fiche-formulaire" class="fenetre fenetre-large" data-ia="{{ '1' if ia_prete else '' }}">
+  <div class="fenetre-contenu">
+    <div class="fiche-tete">
+      <h2 id="ff-nom"></h2>
+      <p class="aide" id="ff-meta"></p>
+    </div>
+    <p class="actions"><a class="bouton" id="ff-ouvrir" href="#" target="_blank" rel="noopener noreferrer">Ouvrir le formulaire du site ↗</a></p>
+    <ul class="puces" id="ff-problemes"></ul>
+
+    <div class="champ champ-large">
+      <label for="ff-message">Message à coller dans le formulaire</label>
+      <textarea id="ff-message" rows="9" placeholder="Pas encore de message : « Écrire avec l'IA » le prépare à partir du vrai problème constaté."></textarea>
+      <div class="actions">
+        <button type="button" class="bouton" id="ff-copier">Copier le message</button>
+        <button type="button" class="secondaire" id="ff-generer">Écrire avec l'IA</button>
+        <button type="button" class="secondaire" id="ff-enregistrer">Enregistrer mes corrections</button>
+        <span class="resultat" id="ff-etat-message" role="status"></span>
+      </div>
+      {% if not ia_prete %}<p class="aide">L'IA n'est pas encore configurée (Réglages) : tu peux écrire le message à la main.</p>{% endif %}
+      <p class="aide">Dans le formulaire, mets ton nom et ton adresse email (c'est là que la réponse arrivera). Relis le message avant de l'envoyer.</p>
+    </div>
+
+    <h3 class="sous-titre">Qu'est-ce qui s'est passé ?</h3>
+    <div class="resultats-appel" id="ff-resultats" role="group" aria-label="Résultat">
+      {% for code, libelle in resultats.items() %}
+        <button type="button" class="secondaire resultat-appel{% if code == 'pas_interesse' %} danger{% endif %}" data-resultat="{{ code }}">{{ libelle }}</button>
+      {% endfor %}
+    </div>
+    <div class="champ" id="ff-champ-note" hidden>
+      <label for="ff-note">Note (facultatif)</label>
+      <input id="ff-note" type="text" maxlength="1000" autocomplete="off" placeholder="Ex. : envoyé le 6/10, via le formulaire de la page Contact">
+      <p class="erreur-champ" data-erreur-pour="note" hidden></p>
+    </div>
+    <p class="aide" id="ff-avertissement" hidden></p>
+    <div class="actions">
+      <button type="button" class="bouton" id="ff-valider" disabled>Enregistrer et passer au suivant</button>
+      <button type="button" class="secondaire" id="ff-fermer">Fermer</button>
+      <span class="resultat" id="ff-etat-resultat" role="status"></span>
+    </div>
+
+    <h3 class="sous-titre">Historique</h3>
+    <ul class="journal-appels" id="ff-historique"></ul>
+  </div>
+</dialog>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='formulaires.js') }}"></script>{% endblock %}

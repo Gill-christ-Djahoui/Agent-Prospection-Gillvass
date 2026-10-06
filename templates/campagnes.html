@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% from "_composants.html" import etat_vide, bouton_supprimer_campagne %}
+{% block titre %}Campagnes{% endblock %}
+{% block titre_page %}Campagnes{% endblock %}
+{% block sous_titre %}<p class="sous-titre-page">Une campagne = une cible : ses recherches, ses villes, ses critères et son angle de message.</p>{% endblock %}
+{% block entete_droite %}
+  <div class="boutons-entete">
+    <button type="button" class="bouton" id="ouvrir-niche">Nouvelle niche (assistant)</button>
+    <button type="button" class="secondaire" id="ouvrir-nouvelle">Nouvelle campagne vierge</button>
+  </div>
+{% endblock %}
+
+{% macro statut_libelle(statut) -%}
+  {{ {'brouillon': 'Brouillon', 'active': 'Active', 'archivee': 'Archivée'}[statut] }}
+{%- endmacro %}
+
+{% block contenu %}
+{# ---------- Assistant de niche : tu décris, l'IA propose, tu relis, la campagne est créée ---------- #}
+<section class="panneau" id="panneau-niche" hidden>
+  <h2>Nouvelle niche</h2>
+  <p class="aide">Décris la niche : l'IA prépare les recherches, l'angle du message, les critères qui comptent pour ton offre et les zones à couvrir. Tu relis tout avant que la campagne soit créée, et tu pourras encore tout modifier ensuite.</p>
+  <form id="form-niche">
+    <div class="grille-champs">
+      <div class="champ">
+        <label for="ni-niche">Niche visée</label>
+        <input id="ni-niche" name="niche" type="text" autocomplete="off" placeholder="kinésithérapeute">
+        <p class="erreur-champ" data-erreur-pour="niche" hidden></p>
+      </div>
+      <div class="champ">
+        <label for="ni-ville">Ville principale</label>
+        <input id="ni-ville" name="ville" type="text" autocomplete="off" placeholder="Lyon">
+        <p class="erreur-champ" data-erreur-pour="ville" hidden></p>
+      </div>
+      <div class="champ">
+        <label for="ni-pays">Pays (2 lettres)</label>
+        <input id="ni-pays" name="pays" type="text" maxlength="2" autocomplete="off" value="FR">
+        <p class="erreur-champ" data-erreur-pour="pays" hidden></p>
+      </div>
+      <div class="champ">
+        <label for="ni-langue">Langue des messages (2 lettres)</label>
+        <input id="ni-langue" name="langue" type="text" maxlength="2" autocomplete="off" value="fr">
+        <p class="erreur-champ" data-erreur-pour="langue" hidden></p>
+      </div>
+    </div>
+    <div class="champ champ-large">
+      <label for="ni-offre">Ce que tu proposes</label>
+      <textarea id="ni-offre" name="offre" rows="2" placeholder="Création d'un site vitrine avec prise de rendez-vous en ligne"></textarea>
+      <p class="erreur-champ" data-erreur-pour="offre" hidden></p>
+    </div>
+    <div class="champ champ-large">
+      <label for="ni-probleme">Le problème que tu veux cibler <span class="aide">(facultatif)</span></label>
+      <textarea id="ni-probleme" name="probleme" rows="2" placeholder="Cabinets sans site, ou avec un site ancien qui ne s'affiche pas bien sur téléphone"></textarea>
+    </div>
+    <div class="grille-champs">
+      <div class="champ">
+        <label for="ni-titre">Comment saluer</label>
+        <select id="ni-titre" name="titre">
+          <option value="aucun">« Bonjour, » seulement</option>
+          <option value="docteur">« Bonjour Docteur, » si le nom commence par Dr</option>
+          <option value="maitre">« Bonjour Maître, » si le nom commence par Me</option>
+        </select>
+        <p class="aide">Jamais de prénom : il peut être mal écrit ou mal genré dans les sources.</p>
+      </div>
+      <div class="champ">
+        <label for="ni-agglo">Zones</label>
+        <label class="aide" style="display:flex;gap:8px;align-items:center;font-weight:500;"><input id="ni-agglo" name="agglomeration" type="checkbox" checked> Couvrir aussi les quartiers et les communes voisines</label>
+      </div>
+    </div>
+    <div class="actions">
+      <button type="submit" class="bouton">Préparer la campagne avec l'IA</button>
+      <button type="button" class="secondaire" id="annuler-niche">Annuler</button>
+      <span class="resultat" id="resultat-niche" role="status"></span>
+    </div>
+  </form>
+
+  <div id="proposition-niche" hidden>
+    <h2 class="sous-titre">Relis et ajuste</h2>
+    <p class="aide">Tout est modifiable. Les zones sont vérifiées à la création : une commune trouvée trop loin de la ville principale (un homonyme) est écartée.</p>
+    <div class="grille-champs">
+      <div class="champ"><label for="pr-nom">Nom de la campagne</label><input id="pr-nom" type="text" autocomplete="off"><p class="erreur-champ" data-erreur-pour="nom" hidden></p></div>
+      <div class="champ"><label for="pr-secteur">Secteur (repris dans les messages)</label><input id="pr-secteur" type="text" autocomplete="off"><p class="erreur-champ" data-erreur-pour="secteur" hidden></p></div>
+    </div>
+    <div class="champ champ-large">
+      <label for="pr-requetes">Recherches Google Maps (une par ligne, sans la ville)</label>
+      <textarea id="pr-requetes" rows="3"></textarea>
+      <p class="erreur-champ" data-erreur-pour="requetes" hidden></p>
+    </div>
+    <div class="champ champ-large">
+      <label for="pr-objet">Objet de l'email</label>
+      <input id="pr-objet" type="text" autocomplete="off">
+      <p class="erreur-champ" data-erreur-pour="objet" hidden></p>
+    </div>
+    <div class="champ champ-large">
+      <label for="pr-angle">Angle du message (ce qui change d'une niche à l'autre)</label>
+      <textarea id="pr-angle" rows="5"></textarea>
+      <p class="aide">Les règles communes (message court, aéré, sans jargon, sans mot de vente, jamais de prénom) sont ajoutées automatiquement.</p>
+      <p class="erreur-champ" data-erreur-pour="angle" hidden></p>
+    </div>
+    <div class="champ champ-large">
+      <label>Poids des critères pour cette niche</label>
+      <table class="tableau" id="pr-criteres">
+        <thead><tr><th>Problème repéré</th><th class="num">Poids habituel</th><th class="num">Poids pour cette niche</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="champ champ-large">
+      <label for="pr-zones">Zones à couvrir (une par ligne : « Nom | rayon en km »)</label>
+      <textarea id="pr-zones" rows="8"></textarea>
+      <p class="aide">La première ligne est la ville principale.</p>
+      <p class="erreur-champ" data-erreur-pour="zones" hidden></p>
+    </div>
+    <div class="actions">
+      <button type="button" class="bouton" id="creer-niche">Créer la campagne</button>
+      <span class="resultat" id="resultat-creation" role="status"></span>
+    </div>
+  </div>
+</section>
+
+<section class="panneau" id="panneau-nouvelle" hidden>
+  <h2>Nouvelle campagne</h2>
+  <form id="form-nouvelle">
+    <div class="champ">
+      <label for="n-nom">Nom de la campagne</label>
+      <input id="n-nom" name="nom" type="text" autocomplete="off" placeholder="Cliniques esthétiques — France Sud">
+      <p class="erreur-champ" data-erreur-pour="nom" hidden></p>
+    </div>
+    <div class="champ">
+      <label for="n-depart">Point de départ</label>
+      <select id="n-depart" name="modele_depart">
+        <option value="">Campagne vierge</option>
+        {% for m in modeles %}<option value="{{ m.id }}">Partir du modèle : {{ m.nom }}</option>{% endfor %}
+      </select>
+      <p class="aide">Un modèle reprend ses requêtes, ses critères et son angle de message. Tu pourras tout modifier ensuite.</p>
+      <p class="erreur-champ" data-erreur-pour="modele_depart" hidden></p>
+    </div>
+    <div id="champs-vierge" class="grille-champs">
+      <div class="champ">
+        <label for="n-secteur">Secteur</label>
+        <input id="n-secteur" name="secteur" type="text" autocomplete="off" placeholder="cabinet dentaire">
+        <p class="aide">Réutilisé dans les prompts.</p>
+        <p class="erreur-champ" data-erreur-pour="secteur" hidden></p>
+      </div>
+      <div class="champ">
+        <label for="n-pays">Pays (2 lettres)</label>
+        <input id="n-pays" name="pays" type="text" maxlength="2" autocomplete="off" placeholder="FR">
+        <p class="erreur-champ" data-erreur-pour="pays" hidden></p>
+      </div>
+      <div class="champ">
+        <label for="n-langue">Langue des messages (2 lettres)</label>
+        <input id="n-langue" name="langue" type="text" maxlength="2" autocomplete="off" placeholder="fr">
+        <p class="erreur-champ" data-erreur-pour="langue" hidden></p>
+      </div>
+    </div>
+    <div class="actions">
+      <button type="submit" class="bouton">Créer la campagne</button>
+      <button type="button" class="secondaire" id="annuler-nouvelle">Annuler</button>
+      <span class="resultat" id="resultat-nouvelle" role="status"></span>
+    </div>
+  </form>
+</section>
+
+<table class="tableau">
+  <thead>
+    <tr><th>Nom</th><th>Secteur</th><th class="num">Zones</th><th class="num">Prospects</th><th class="num">Envois</th><th>Statut</th><th class="col-actions"><span class="sr-seulement">Supprimer</span></th></tr>
+  </thead>
+  <tbody>
+    {% for c in campagnes %}
+      <tr{% if c.statut == 'archivee' %} class="archivee"{% endif %}>
+        <td><a href="{{ url_for('campagne', campagne_id=c.id) }}">{{ c.nom }}</a></td>
+        <td>{{ c.secteur }}</td>
+        <td class="num">{{ c.nb_zones }}</td>
+        <td class="num">{{ c.nb_prospects }}</td>
+        <td class="num">{{ c.nb_envois }}</td>
+        <td><span class="chip chip-{{ c.statut }}">{{ statut_libelle(c.statut) }}</span></td>
+        <td class="col-actions">{{ bouton_supprimer_campagne(c) }}</td>
+      </tr>
+    {% else %}
+      <tr class="ligne-vide"><td colspan="7">
+        {{ etat_vide('campagnes', "Aucune campagne pour l'instant", "Crée ta première campagne, ou pars d'un des modèles de départ ci-dessous : requêtes, critères et angle de message sont déjà prêts.") }}
+      </td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2 class="sous-titre">Modèles de départ</h2>
+<p class="aide">Des exemples prêts à copier, pas un carcan : ouvre-en un pour le modifier, ou supprime-le.</p>
+<table class="tableau">
+  <thead><tr><th>Nom</th><th>Secteur</th><th class="num">Zones</th><th class="col-actions"><span class="sr-seulement">Supprimer</span></th></tr></thead>
+  <tbody>
+    {% for m in modeles %}
+      <tr>
+        <td><a href="{{ url_for('campagne', campagne_id=m.id) }}">{{ m.nom }}</a></td>
+        <td>{{ m.secteur }}</td>
+        <td class="num">{{ m.nb_zones }}</td>
+        <td class="col-actions">{{ bouton_supprimer_campagne(m) }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="vide">Aucun modèle. Sur la fiche d'une campagne, « Enregistrer comme modèle » en crée un.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='campagnes.js') }}"></script><script src="{{ url_for('static', filename='niche.js') }}"></script>{% endblock %}

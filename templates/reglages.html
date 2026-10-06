@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+{% block titre %}Réglages{% endblock %}
+{% block titre_page %}Réglages{% endblock %}
+{% block sous_titre %}<p class="sous-titre-page">Clés des services, identité d'expédition, limites et seuils.</p>{% endblock %}
+
+{# Champ texte / nombre / email #}
+{% macro champ(cle, libelle, aide='', type='text') %}
+<div class="champ">
+  <label for="f-{{ cle }}">{{ libelle }}</label>
+  <input id="f-{{ cle }}" data-cle="{{ cle }}" type="{{ type }}" value="{{ etat[cle].valeur }}"
+         autocomplete="off"{% if type == 'number' %} min="0" step="1"{% endif %}>
+  {% if aide %}<p class="aide">{{ aide }}</p>{% endif %}
+  <p class="erreur-champ" data-erreur-pour="{{ cle }}" hidden></p>
+</div>
+{% endmacro %}
+
+{# Zone de texte (une entrée par ligne pour les listes) #}
+{% macro zone_texte(cle, libelle, aide='', lignes=3) %}
+<div class="champ">
+  <label for="f-{{ cle }}">{{ libelle }}</label>
+  <textarea id="f-{{ cle }}" data-cle="{{ cle }}" rows="{{ lignes }}" autocomplete="off">{{ etat[cle].valeur }}</textarea>
+  {% if aide %}<p class="aide">{{ aide }}</p>{% endif %}
+  <p class="erreur-champ" data-erreur-pour="{{ cle }}" hidden></p>
+</div>
+{% endmacro %}
+
+{# Clé secrète : jamais renvoyée au navigateur, seulement son masque #}
+{% macro cle_secrete(cle, libelle) %}
+<div class="champ">
+  <label for="f-{{ cle }}">{{ libelle }}</label>
+  <input id="f-{{ cle }}" data-cle="{{ cle }}" data-secret="1" type="password" autocomplete="new-password"
+         value="" placeholder="{{ (etat[cle].masque ~ ' (enregistrée)') if etat[cle].definie else 'Non configurée' }}">
+  <button type="button" class="secondaire" data-effacer="{{ cle }}" {% if not etat[cle].definie %}hidden{% endif %}>Effacer la clé</button>
+  <p class="aide">Laisse vide pour conserver la clé enregistrée.</p>
+  <p class="erreur-champ" data-erreur-pour="{{ cle }}" hidden></p>
+</div>
+{% endmacro %}
+
+{% macro bouton_test(service, champs) %}
+<div class="test">
+  <button type="button" class="secondaire" data-tester="{{ service }}" data-champs="{{ champs }}">Tester la connexion</button>
+  <span class="resultat" data-resultat-pour="{{ service }}" role="status"></span>
+</div>
+{% endmacro %}
+
+{% block contenu %}
+
+{# ---------- Clés et services ---------- #}
+<form class="panneau" data-bloc="services">
+  <h2>Clés et services</h2>
+
+  <div class="champ">
+    <label for="f-sourcing_provider">Fournisseur de sourcing</label>
+    <select id="f-sourcing_provider" data-cle="sourcing_provider">
+      {% for code, nom in [('auto', 'Automatique (Google si clé, sinon OpenStreetMap)'), ('google', 'Google Places'), ('osm', 'OpenStreetMap')] %}
+        <option value="{{ code }}" {% if etat.sourcing_provider.valeur == code %}selected{% endif %}>{{ nom }}</option>
+      {% endfor %}
+    </select>
+    <p class="aide">Utilisé actuellement : <strong id="fournisseur">{{ fournisseur }}</strong></p>
+    <p class="erreur-champ" data-erreur-pour="sourcing_provider" hidden></p>
+  </div>
+
+  <h3>Google Places</h3>
+  {{ cle_secrete('google_places_key', 'Clé API Google Places') }}
+  {{ bouton_test('google', 'google_places_key') }}
+  <div class="grille-champs">
+    {{ champ('google_requetes_mois_max', 'Plafond mensuel de requêtes Google', 'Garde-fou contre toute facturation : au-delà, l\'application n\'appelle plus Google. Le palier gratuit de Google est de 1 000 requêtes par mois pour les champs utilisés ici (site web, avis, téléphone). 0 = pas de limite.', 'number') }}
+    <div class="champ">
+      <label>Consommation ce mois-ci</label>
+      <p class="gros-chiffre"><strong id="google-usage">{{ google_usage }}</strong> requête{{ 's' if google_usage > 1 }}</p>
+      <p class="aide">Une recherche de 60 résultats consomme 3 requêtes.</p>
+    </div>
+  </div>
+
+  <h3>Fournisseur d'IA (compatible OpenAI)</h3>
+  <div class="champ">
+    <label for="f-ai_endpoint">Endpoint</label>
+    <input id="f-ai_endpoint" data-cle="ai_endpoint" type="url" list="endpoints-ia" value="{{ etat.ai_endpoint.valeur }}"
+           placeholder="https://…/v1/chat/completions" autocomplete="off">
+    <datalist id="endpoints-ia">{% for e in endpoints_ia %}<option value="{{ e }}">{% endfor %}</datalist>
+    <p class="aide">Groq, xAI et OpenAI sont proposés ; n'importe quel endpoint compatible fonctionne.</p>
+    <p class="erreur-champ" data-erreur-pour="ai_endpoint" hidden></p>
+  </div>
+  <div class="champ">
+    <label for="f-ai_model">Modèle</label>
+    <input id="f-ai_model" data-cle="ai_model" type="text" value="{{ etat.ai_model.valeur }}" autocomplete="off"
+           placeholder="Identifiant exact du modèle : clique sur « Voir les modèles disponibles »">
+    <p class="aide">Ce n'est pas le nom du fournisseur : c'est l'identifiant d'un de ses modèles.</p>
+    <div class="test">
+      <button type="button" class="secondaire" id="btn-modeles">Voir les modèles disponibles</button>
+      <span class="resultat" id="resultat-modeles" role="status"></span>
+    </div>
+    <div class="puces puces-modeles" id="liste-modeles" hidden></div>
+    <p class="erreur-champ" data-erreur-pour="ai_model" hidden></p>
+  </div>
+  {{ cle_secrete('ai_key', 'Clé API du fournisseur d\'IA') }}
+  {{ bouton_test('ia', 'ai_endpoint,ai_model,ai_key') }}
+
+  <h3>Brevo</h3>
+  {{ cle_secrete('brevo_key', 'Clé API Brevo') }}
+  {{ bouton_test('brevo', 'brevo_key,expediteur_email') }}
+  <p class="aide">Le test lit ton compte Brevo et vérifie que l'adresse d'expédition y est déclarée. Aucun email n'est envoyé.</p>
+
+  <div class="actions"><button type="submit" class="bouton">Enregistrer les clés et services</button>
+    <span class="resultat" data-enregistre-pour="services" role="status"></span></div>
+</form>
+
+{# ---------- Identité d'expédition ---------- #}
+<form class="panneau" data-bloc="identite">
+  <h2>Identité d'expédition</h2>
+  {{ champ('expediteur_nom', 'Nom affiché') }}
+  {{ champ('expediteur_email', 'Adresse d\'expédition', 'Doit être un expéditeur validé chez Brevo.', 'email') }}
+  {{ champ('reponse_email', 'Adresse de réponse', 'Laisse vide pour répondre à l\'adresse d\'expédition.', 'email') }}
+  <div class="champ">
+    <label for="f-mon_site">Mon site (URL)</label>
+    <input id="f-mon_site" data-cle="mon_site" type="url" value="{{ etat.mon_site.valeur }}" placeholder="https://gdjahoui.com" autocomplete="off">
+    <p class="erreur-champ" data-erreur-pour="mon_site" hidden></p>
+  </div>
+  <div class="champ">
+    <label for="f-site_dans_signature">Afficher mon site sous la signature</label>
+    <select id="f-site_dans_signature" data-cle="site_dans_signature">
+      {% for code, nom in [('relances', 'Seulement dans les relances (recommandé)'), ('jamais', 'Jamais'), ('toujours', 'Dans tous les messages')] %}
+        <option value="{{ code }}" {% if etat.site_dans_signature.valeur == code %}selected{% endif %}>{{ nom }}</option>
+      {% endfor %}
+    </select>
+    <p class="aide">Un lien dans un tout premier email augmente le risque de finir en spam : c'est pourquoi le texte écrit par l'IA n'en contient jamais. Ce réglage ajoute ton adresse sous la signature au moment de l'envoi, en texte simple.</p>
+    <p class="erreur-champ" data-erreur-pour="site_dans_signature" hidden></p>
+  </div>
+  {{ zone_texte('signature_defaut', 'Signature par défaut', 'Utilisée quand le modèle de message n\'a pas sa propre signature.', 4) }}
+  {{ zone_texte('mention_desinscription', 'Mention de désinscription', 'Ajoutée en bas de chaque email : moyen simple de s\'opposer, exigé pour la prospection B2B.', 2) }}
+  <div class="champ">
+    <label for="f-email_format">Mise en forme des emails</label>
+    <select id="f-email_format" data-cle="email_format">
+      {% for code, nom in [('html', 'Mis en page (HTML + version texte jointe)'), ('texte', 'Texte brut seulement')] %}
+        <option value="{{ code }}" {% if etat.email_format.valeur == code %}selected{% endif %}>{{ nom }}</option>
+      {% endfor %}
+    </select>
+    <p class="aide">La mise en page ne change aucun mot : elle présente le texte que tu as approuvé (paragraphes, police lisible, pied de page discret). Notre mise en page ne contient ni image ni lien (Brevo, lui, ajoute son propre compteur d'ouvertures). Un texte brut a plus de chances d'arriver dans l'onglet « Principale » de Gmail, un email mis en page dans « Promotions » : compare sur tes propres envois. L'aperçu est dans l'écran Messages.</p>
+    <p class="erreur-champ" data-erreur-pour="email_format" hidden></p>
+  </div>
+  {{ champ('email_couleur_accent', 'Couleur d\'accent des emails', 'Utilisée pour le petit trait d\'en-tête et le lien vers ton site.', 'color') }}
+  {{ zone_texte('modele_email_html', 'Modèle HTML des emails (avancé)', 'Variables : {contenu} (obligatoire : ton texte mis en page), {mention} et {couleur}. N\'y ajoute ni image ni lien : ils dégradent la délivrabilité.', 9) }}
+  {{ zone_texte('prompt_relance', 'Consignes de relance (ajoutées au prompt de la campagne)', 'Variables : celles du prompt, plus {numero}, {jours} et {message_precedent}. Une relance suit le même chemin que le premier message : génération, validation humaine, envoi.', 7) }}
+  <div class="actions"><button type="submit" class="bouton">Enregistrer l'identité</button>
+    <span class="resultat" data-enregistre-pour="identite" role="status"></span></div>
+</form>
+
+{# ---------- Limites ---------- #}
+<form class="panneau" data-bloc="limites">
+  <h2>Limites</h2>
+  <div class="grille-champs">
+    {{ champ('plafond_jour', 'Plafond d\'envois par jour', '', 'number') }}
+    {{ champ('pause_envoi_min_s', 'Pause minimale entre deux envois (s)', '', 'number') }}
+    {{ champ('pause_envoi_max_s', 'Pause maximale entre deux envois (s)', '', 'number') }}
+    {{ champ('score_min_generation', 'Score minimum pour générer un message', 'En dessous, aucun crédit IA n\'est consommé (génération forçable à la main).', 'number') }}
+    {{ champ('delai_relance_jours', 'Délai avant relance (jours)', '', 'number') }}
+    {{ champ('max_relances', 'Relances maximum par prospect', '', 'number') }}
+    {{ champ('pause_ia_s', 'Pause entre deux appels à l\'IA (s)', '', 'number') }}
+    {{ champ('timeout_ia_s', 'Délai d\'attente d\'une réponse de l\'IA (s)', '', 'number') }}
+    {{ champ('mots_max_message', 'Longueur maximale d\'un message (mots)', 'Contrôlée après génération ; 0 = pas de contrôle. Un message trop long est régénéré une fois, puis refusé.', 'number') }}
+  </div>
+
+  {{ zone_texte('envoi_adresses_autorisees', 'Mode essai : destinataires autorisés', 'Tant que cette liste n\'est pas vide, un email ne peut partir QUE vers ces adresses (une par ligne). Utile pour tester sans risque d\'écrire à un vrai prospect. Mets des adresses complètes (par exemple prenom+test1@gmail.com), jamais « gmail.com » seul : de vrais cabinets l\'utilisent. Vide = aucune restriction. L\'approbation humaine reste toujours exigée.', 4) }}
+  <div class="aide-volume">
+    <strong>Montée en volume recommandée</strong> (une adresse neuve qui envoie trop vite finit en spam) :
+    semaine 1 : 20 par jour · semaine 2 : 35 · semaine 3 : 50 · semaine 4 et au-delà : 80 à 100.
+  </div>
+
+  <details>
+    <summary>Réglages avancés : scan, analyse des sites, doublons</summary>
+    <div class="grille-champs">
+      {{ champ('plafond_resultats_scan', 'Résultats maximum par requête et par zone', '', 'number') }}
+      {{ champ('http_timeout_s', 'Délai d\'attente réseau (s)', 'Appliqué à chaque appel sortant.', 'number') }}
+      {{ champ('seuil_lenteur_s', 'Seuil « site lent » (s)', '', 'number') }}
+      {{ champ('seuil_avis_min', 'Seuil « peu d\'avis » (nombre d\'avis)', '', 'number') }}
+      {{ champ('pause_requetes_s', 'Pause entre deux requêtes OpenStreetMap (s)', '', 'number') }}
+      {{ champ('timeout_overpass_s', 'Délai d\'attente d\'une requête OpenStreetMap (s)', 'Ces requêtes sont lentes : plus long que le délai réseau général.', 'number') }}
+      {{ champ('overpass_nouvelle_tentative_s', 'Attente avant de réessayer OpenStreetMap saturé (s)', 'Seconde passe sur les serveurs qui ont refusé la requête. 0 = pas de seconde passe.', 'number') }}
+      {{ champ('pause_pages_s', 'Pause entre deux pages d\'un même site (s)', 'Politesse lors de la recherche d\'emails.', 'number') }}
+      {{ champ('session_heures', 'Durée d\'une session (heures)', 'Au-delà, il faut se reconnecter.', 'number') }}
+      {{ champ('fuseau', 'Fuseau horaire métier', 'Définit « aujourd\'hui » pour le quota quotidien. Exemple : Europe/Paris.') }}
+    </div>
+    {{ zone_texte('osm_correspondances', 'Correspondance requêtes → étiquettes OpenStreetMap', 'Une règle par ligne : mot1|mot2 = tag=valeur, tag=valeur. Ajoute « nom » pour chercher aussi par nom d\'établissement. Une requête sans règle est cherchée par nom.', 6) }}
+    {{ champ('analyses_echantillon_min', 'Analyses : contacts minimum pour conclure', 'En dessous, aucune recommandation fine n\'est proposée.', 'number') }}
+    {{ champ('analyses_echantillon_groupe', 'Analyses : contacts minimum par groupe comparé', 'Ville, problème, angle… : un groupe plus petit n\'est jamais présenté comme gagnant.', 'number') }}
+    {{ champ('analyses_seuil_rebond_pct', 'Alerte réputation : taux de rebond (%)', '', 'number') }}
+    {{ champ('analyses_seuil_ouverture_pct', 'Alerte objet : taux d\'ouverture minimal (%)', '', 'number') }}
+    {{ champ('sauvegardes_max', 'Sauvegardes conservées', 'Les plus anciennes sont supprimées.', 'number') }}
+    {{ zone_texte('analyses_tranches_score', 'Tranches de score des analyses', 'Bornes du score brut, une par ligne (exemple : 5, 8, 11 = moins de 5, 5 à 7, 8 à 10, 11 et plus).', 3) }}
+    {{ zone_texte('montee_plafonds', 'Montée en volume recommandée', 'Plafond conseillé par jour, semaine par semaine depuis le premier envoi, un nombre par ligne (20, 35, 50, 80).', 4) }}
+    {{ zone_texte('dkim_selecteurs', 'Sélecteurs DKIM à rechercher', 'Un par ligne. Servent à vérifier la santé de ton domaine d\'envoi.', 3) }}
+    {{ zone_texte('prompt_analyste', 'Consignes de l\'analyste IA', 'Le prompt envoyé avec tes statistiques agrégées dans l\'écran Analyses.', 8) }}
+    {{ champ('niche_zones_max', 'Assistant de niche : zones proposées au maximum', 'Villes, quartiers et communes ajoutés d\'un coup à une nouvelle campagne.', 'number') }}
+    {{ champ('niche_distance_max_km', 'Assistant de niche : distance maximale d\'une zone (km)', 'Une zone localisée plus loin que ça de la ville principale est un homonyme d\'une autre région : elle est écartée.', 'number') }}
+    {{ zone_texte('prompt_formulaire', 'Consignes du message pour formulaire de contact', 'Le prompt envoyé à l\'IA pour écrire le message que tu colles dans le formulaire d\'un site (écran Formulaires). Variables : {expediteur}, {nom}, {ville}, {secteur}, {site}, {problemes}, {score}, {angle}, {signature}.', 14) }}
+    {{ champ('contact_liens_max', 'Pages de contact suivies depuis l\'accueil', 'Nombre de liens « contact » suivis sur la page d\'accueil d\'un site, en plus des pages habituelles. 0 = aucun.', 'number') }}
+    {{ zone_texte('mots_cles_contact', 'Mots qui désignent une page de contact', 'Un par ligne, sans accent. Un lien dont le texte ou l\'adresse contient l\'un d\'eux est suivi.', 3) }}
+    {{ zone_texte('domaines_formulaires', 'Formulaires intégrés reconnus', 'Un fragment d\'adresse par ligne (Typeform, Google Forms…). Un site qui intègre l\'un d\'eux est considéré comme ayant un formulaire de contact.', 4) }}
+    {{ zone_texte('prompt_appel', 'Consignes du script d\'appel', 'Le prompt envoyé à l\'IA pour écrire le script d\'un appel (écran Appels). Variables : {expediteur}, {nom}, {ville}, {secteur}, {site}, {problemes}, {score}, {angle}.', 12) }}
+    {{ zone_texte('prompt_niche', 'Consignes de l\'assistant de niche', 'Le prompt envoyé à l\'IA pour préparer une campagne. Variables : {niche}, {offre}, {probleme}, {ville}, {pays}, {criteres}, {zones_instruction}.', 10) }}
+    {{ zone_texte('domaines_plateformes', 'Plateformes et annuaires', 'Un domaine par ligne. Un « site » situé sur l\'un d\'eux (page Doctolib, Facebook…) est traité comme « pas de site propre » : il n\'est pas analysé et n\'entre pas dans le dédoublonnage par domaine.', 6) }}
+    {{ zone_texte('sources_site_fiable', 'Sources où « pas de site » est fiable', 'Un par ligne (google_places, openstreetmap, import_csv). Pour les autres sources, un site vide signifie « inconnu » : le critère « aucun site » ne se déclenche pas.', 3) }}
+    {{ zone_texte('overpass_urls', 'Serveurs OpenStreetMap (Overpass)', 'Un par ligne, essayés dans l\'ordre. Ces serveurs publics sont parfois saturés : si l\'un est lent ou en panne, le suivant prend le relais.', 3) }}
+    {{ zone_texte('pages_contact', 'Pages où chercher un email', 'Un chemin par ligne, en plus de la page d\'accueil.', 4) }}
+    {{ zone_texte('emails_exclus', 'Adresses exclues de la recherche d\'emails', 'Un fragment par ligne : toute adresse qui le contient est écartée (plateformes, no-reply, exemples).', 5) }}
+    {{ zone_texte('import_statuts_email_acceptes', 'Statuts d\'email acceptés à l\'import CSV', 'Un par ligne (receiving, valid…). Quand un fichier indique si chaque adresse est valide, seules ces valeurs gardent l\'email ; les autres fiches sont importées sans email. Vide = tout garder.', 4) }}
+    {{ zone_texte('mots_cles_rdv', 'Mots-clés de prise de rendez-vous', 'Un par ligne. Leur absence sur un site déclenche « pas de rendez-vous en ligne ».', 6) }}
+    {{ zone_texte('titres_generiques', 'Titres de page considérés comme génériques', 'Un par ligne.', 5) }}
+    {{ zone_texte('mentions_juridiques', 'Mentions juridiques ignorées dans les noms', 'Un par ligne (sarl, sas…). Sert au dédoublonnage.', 5) }}
+    {{ zone_texte('domaines_generiques', 'Domaines d\'adresses génériques', 'Un par ligne. Ces adresses sont signalées « adresse générique » dans le tableau, jamais bloquées.', 8) }}
+  </details>
+
+  <div class="actions"><button type="submit" class="bouton">Enregistrer les limites</button>
+    <span class="resultat" data-enregistre-pour="limites" role="status"></span></div>
+</form>
+
+{# ---------- Santé du domaine d'envoi ---------- #}
+<section class="panneau" id="panneau-domaine">
+  <h2>Santé du domaine d'envoi</h2>
+  <p class="aide">SPF, DKIM et DMARC décident si tes emails arrivent en boîte de réception ou en spam. Le contrôle interroge le DNS public ; aucun email n'est envoyé.</p>
+  <div class="actions">
+    <button type="button" class="secondaire" id="btn-domaine">Vérifier mon domaine</button>
+    <span class="resultat" id="resultat-domaine" role="status"></span>
+  </div>
+  <ul class="controles-domaine" id="liste-domaine">
+    {% if verif_domaine %}
+      {% for c in verif_domaine.controles %}
+        <li><span class="chip chip-domaine-{{ c.statut }}">{{ c.titre }}</span><div><span>{{ c.detail }}</span>{% if c.conseil %}<span class="aide"> {{ c.conseil }}</span>{% endif %}</div></li>
+      {% endfor %}
+      <li class="aide">Dernière vérification : {{ verif_domaine.date[:10] }} · {{ verif_domaine.domaine }}</li>
+    {% endif %}
+  </ul>
+</section>
+
+{# ---------- Sauvegardes ---------- #}
+<section class="panneau" id="panneau-sauvegardes">
+  <h2>Sauvegardes</h2>
+  <p class="aide">Une copie de la base est faite automatiquement chaque jour au lancement (si elle contient du travail). Elles sont dans <code>data/sauvegardes</code>. ⚠ Elles contiennent tes clés API en clair : ne les mets pas dans un cloud public et ne les partage pas. Pour restaurer : ferme l'application, remplace <code>data/prospect.db</code> par la sauvegarde choisie, relance.</p>
+  <div class="actions">
+    <button type="button" class="secondaire" id="btn-sauvegarde">Sauvegarder maintenant</button>
+    <span class="resultat" id="resultat-sauvegarde" role="status"></span>
+  </div>
+  <ul class="liste-simple" id="liste-sauvegardes">
+    {% for s in sauvegardes %}<li><span>{{ s.nom }}</span><span class="aide">{{ (s.taille / 1024) | round | int }} Ko</span></li>{% else %}<li class="aide">Aucune sauvegarde pour l'instant.</li>{% endfor %}
+  </ul>
+</section>
+
+{# ---------- Journal ---------- #}
+<section class="panneau" id="panneau-journal">
+  <h2>Journal d'activité</h2>
+  <p class="aide">Chaque appel externe, envoi, refus et erreur est consigné avec son horodatage (jamais les clés) : de quoi reconstituer exactement ce qui est parti, quand, et vers qui.</p>
+  <div class="actions">
+    <button type="button" class="secondaire" id="btn-journal">Afficher les 200 dernières lignes</button>
+    <span class="resultat" id="resultat-journal" role="status"></span>
+  </div>
+  <pre class="journal" id="texte-journal" hidden></pre>
+</section>
+
+{# ---------- Accès à l'application ---------- #}
+<form class="panneau" id="form-acces" autocomplete="off">
+  <h2>Accès à l'application</h2>
+  <p class="aide">Identifiant et mot de passe demandés à chaque connexion. Le mot de passe n'est jamais stocké en clair, seulement son empreinte.</p>
+  <div class="grille-champs">
+    <div class="champ">
+      <label for="ac-identifiant">Identifiant</label>
+      <input id="ac-identifiant" type="text" value="{{ identifiant_connecte }}" autocomplete="username">
+      <p class="erreur-champ" data-erreur-pour="identifiant" hidden></p>
+    </div>
+    <div class="champ">
+      <label for="ac-actuel">Mot de passe actuel</label>
+      <input id="ac-actuel" type="password" autocomplete="current-password">
+      <p class="erreur-champ" data-erreur-pour="actuel" hidden></p>
+    </div>
+    <div class="champ">
+      <label for="ac-nouveau">Nouveau mot de passe</label>
+      <input id="ac-nouveau" type="password" autocomplete="new-password">
+      <p class="aide">10 caractères au minimum. Laisse vide pour ne changer que l'identifiant.</p>
+    </div>
+    <div class="champ">
+      <label for="ac-confirmation">Confirmer le nouveau mot de passe</label>
+      <input id="ac-confirmation" type="password" autocomplete="new-password">
+      <p class="erreur-champ" data-erreur-pour="confirmation" hidden></p>
+    </div>
+  </div>
+  <div class="actions"><button type="submit" class="bouton">Enregistrer l'accès</button>
+    <span class="resultat" id="resultat-acces" role="status"></span></div>
+</form>
+
+{# ---------- Liste noire ---------- #}
+<section class="panneau" id="liste-noire">
+  <h2>Liste noire</h2>
+  <p class="aide">Une adresse ou un domaine listé ne reçoit plus jamais rien, toutes campagnes confondues.</p>
+  <form class="ligne-ajout" id="form-liste-noire">
+    <input type="text" id="valeur-liste-noire" placeholder="nom@domaine.fr ou domaine.fr" autocomplete="off" aria-label="Adresse ou domaine à bloquer">
+    <button type="submit" class="bouton">Ajouter à la liste noire</button>
+  </form>
+  <p class="erreur-champ" id="erreur-liste-noire" hidden></p>
+  <table class="tableau">
+    <thead><tr><th>Valeur</th><th>Motif</th><th>Ajoutée le</th></tr></thead>
+    <tbody id="corps-liste-noire">
+      {% for l in liste_noire %}
+        <tr><td>{{ l.valeur }}</td><td>{{ l.motif }}</td><td>{{ l.ajoute_le }}</td></tr>
+      {% else %}
+        <tr class="ligne-vide"><td colspan="3" class="vide">Aucune adresse bloquée. Ajoute-en une ci-dessus, par exemple après une demande de désinscription.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

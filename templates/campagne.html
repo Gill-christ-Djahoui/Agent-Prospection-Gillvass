@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% block titre %}{{ campagne.nom }}{% endblock %}
+{% block titre_page %}{{ campagne.nom }}{% endblock %}
+
+{% macro statut_libelle(statut) -%}
+  {{ {'brouillon': 'Brouillon', 'active': 'Active', 'archivee': 'Archivée'}[statut] }}
+{%- endmacro %}
+
+{% block entete_droite %}
+  <div class="boutons-entete">
+    {% if campagne.statut != 'archivee' %}
+      <button type="button" class="bouton" id="btn-scan-complet" {% if scan_actif or not zones %}disabled{% endif %}{% if not zones %} title="Ajoute d'abord au moins une ville dans « Zones à couvrir »"{% endif %}>Lancer le scan complet</button>
+    {% endif %}
+    {% if campagne.statut != 'archivee' and campagne.nb_prospects %}
+      <button type="button" class="secondaire" id="btn-analyser" {% if scan_actif %}disabled{% endif %}>Analyser les nouveaux sites</button>
+      <button type="button" class="secondaire" id="btn-reanalyser" {% if scan_actif %}disabled{% endif %}>Réanalyser tous les sites</button>
+      <button type="button" class="secondaire" id="btn-contacts" title="Pour les prospects qui ont un site propre mais aucun email connu : cherche leur email, à défaut leur formulaire de contact" {% if scan_actif %}disabled{% endif %}>Chercher les emails et formulaires manquants</button>
+    {% endif %}
+    <button type="button" class="secondaire" id="btn-dupliquer">Dupliquer</button>
+    {% if not campagne.est_modele %}
+      <button type="button" class="secondaire" id="btn-comme-modele">Enregistrer comme modèle</button>
+    {% endif %}
+    {% if campagne.statut == 'archivee' %}
+      <button type="button" class="secondaire" id="btn-archiver" data-archiver="false">Désarchiver</button>
+    {% elif not campagne.est_modele %}
+      <button type="button" class="secondaire" id="btn-archiver" data-archiver="true">Archiver</button>
+    {% endif %}
+    <button type="button" class="secondaire danger" id="btn-supprimer-campagne" data-nom="{{ campagne.nom }}"
+            data-prospects="{{ campagne.nb_prospects }}" {% if scan_actif %}disabled title="Un scan ou une analyse est en cours sur cette campagne"{% endif %}>
+      {{ 'Supprimer ce modèle' if campagne.est_modele else 'Supprimer la campagne' }}</button>
+  </div>
+{% endblock %}
+
+{% block contenu %}
+<p class="fil" id="fiche" data-campagne-id="{{ campagne.id }}"><a href="{{ url_for('campagnes') }}">← Toutes les campagnes</a>
+  · {{ statut_libelle(campagne.statut) }}{% if campagne.est_modele %} · modèle de départ{% endif %}
+  · {% if campagne.nb_prospects %}<a href="{{ url_for('prospects') }}?campagne={{ campagne.id }}">{{ campagne.nb_prospects }} prospect{{ 's' if campagne.nb_prospects > 1 }}</a>{% else %}0 prospect{% endif %}</p>
+
+{% if not zones and campagne.statut != 'archivee' %}
+<p class="bandeau-action" id="aide-sans-zone"><strong>Le scan est grisé : cette campagne n'a encore aucune ville.</strong>
+  Va dans <a href="#bloc-zones">« Zones à couvrir »</a>, écris une ville par ligne (par exemple « Bordeaux »), puis clique sur « Ajouter les zones ». Le bouton s'active ensuite.</p>
+{% endif %}
+
+{# ---------- Dernier scan : avancement réel lu dans la table jobs ---------- #}
+<section class="panneau" id="panneau-job" data-job-id="{{ job.id if job else '' }}" data-actif="{{ '1' if scan_actif else '' }}" {% if not job %}hidden{% endif %}>
+  <h2 id="job-titre">{% if job %}{{ {'scan': 'Scan', 'analyse': 'Analyse des sites', 'redaction': 'Rédaction', 'envoi': 'Envoi'}[job.type] }} — {{ {'en_attente': 'en attente…', 'en_cours': 'en cours…', 'termine': 'terminé', 'erreur': 'en erreur'}[job.statut] }}{% endif %}</h2>
+  <progress id="job-barre" max="100" value="{{ job.progression if job else 0 }}"></progress>
+  <p id="job-detail" class="job-detail{% if job and job.statut == 'erreur' %} statut-erreur{% endif %}">{{ job.detail if job else '' }}</p>
+</section>
+
+{# ---------- Informations et requêtes ---------- #}
+<section class="panneau" id="bloc-infos">
+  <h2>Informations et requêtes de recherche</h2>
+  <div class="grille-champs">
+    <div class="champ">
+      <label for="i-nom">Nom</label>
+      <input id="i-nom" data-champ="nom" type="text" value="{{ campagne.nom }}" autocomplete="off">
+      <p class="erreur-champ" data-erreur-pour="nom" hidden></p>
+    </div>
+    <div class="champ">
+      <label for="i-secteur">Secteur</label>
+      <input id="i-secteur" data-champ="secteur" type="text" value="{{ campagne.secteur }}" autocomplete="off">
+      <p class="erreur-champ" data-erreur-pour="secteur" hidden></p>
+    </div>
+    <div class="champ">
+      <label for="i-pays">Pays (2 lettres)</label>
+      <input id="i-pays" data-champ="pays" type="text" maxlength="2" value="{{ campagne.pays }}" autocomplete="off">
+      <p class="erreur-champ" data-erreur-pour="pays" hidden></p>
+    </div>
+    <div class="champ">
+      <label for="i-langue">Langue des messages (2 lettres)</label>
+      <input id="i-langue" data-champ="langue" type="text" maxlength="2" value="{{ campagne.langue }}" autocomplete="off">
+      <p class="erreur-champ" data-erreur-pour="langue" hidden></p>
+    </div>
+  </div>
+
+  <div class="champ">
+    <label for="i-requete">Requêtes de recherche</label>
+    <ul class="puces" id="liste-requetes" data-requetes='{{ campagne.requetes | tojson }}'></ul>
+    <div class="ligne-ajout">
+      <input type="text" id="i-requete" autocomplete="off" placeholder="Ajouter une requête, puis Entrée">
+      <button type="button" class="secondaire" id="btn-ajout-requete">Ajouter la requête</button>
+    </div>
+    <p class="aide">Chaque requête est envoyée au moteur de sourcing, pour chaque zone.</p>
+  </div>
+
+  <div class="actions">
+    <button type="button" class="bouton" id="btn-enregistrer-infos">Enregistrer les informations</button>
+    <span class="resultat" id="resultat-infos" role="status"></span>
+  </div>
+</section>
+
+{# ---------- Zones ---------- #}
+<section class="panneau" id="bloc-zones">
+  <h2>Zones à couvrir</h2>
+  <table class="tableau">
+    <thead>
+      <tr><th>Ville</th><th>Pays</th><th class="num">Rayon (km)</th><th>Coordonnées</th><th>Scan</th><th class="num">Trouvés</th><th class="num">Dont déjà en base</th><th>Actions</th></tr>
+    </thead>
+    <tbody>
+      {% for z in zones %}
+        <tr data-zone="{{ z.id }}">
+          <td>{{ z.ville }}</td>
+          <td>{{ z.pays }}</td>
+          <td class="num">{{ z.rayon_km }}</td>
+          <td>
+            {% if z.lat is none %}
+              <span class="resultat statut-erreur">Ville introuvable</span>
+            {% else %}
+              {{ '%.3f'|format(z.lat) }}, {{ '%.3f'|format(z.lon) }}
+            {% endif %}
+          </td>
+          <td>
+            {% if z.statut == 'en_cours' %}En cours
+            {% elif z.statut == 'termine' %}Terminée le {{ z.dernier_scan[8:10] }}/{{ z.dernier_scan[5:7] }}
+            {% else %}Jamais scannée{% endif %}
+          </td>
+          <td class="num">{{ z.nb_trouves }}</td>
+          <td class="num" title="Déjà en base : ignorés pour éviter les doublons">{{ z.nb_ignores }}{% if z.nb_ignores %}<br><span class="code">déjà en base</span>{% endif %}</td>
+          <td class="actions-ligne">
+            {% if z.lat is not none and campagne.statut != 'archivee' %}
+              <button type="button" class="secondaire" data-scanner-zone="{{ z.id }}" {% if scan_actif %}disabled{% endif %}>Scanner cette zone</button>
+            {% endif %}
+            {% if z.lat is none %}
+              <button type="button" class="secondaire" data-geocoder="{{ z.id }}">Réessayer le géocodage</button>
+              <button type="button" class="secondaire" data-coordonnees="{{ z.id }}">Saisir les coordonnées</button>
+            {% endif %}
+            {% if z.nb_prospects == 0 %}
+              <button type="button" class="secondaire" data-supprimer-zone="{{ z.id }}" data-ville="{{ z.ville }}">Supprimer</button>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8" class="vide">Aucune zone. Ajoute les villes à couvrir ci-dessous : une campagne peut en porter autant que nécessaire.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>Ajouter des zones</h3>
+  <div class="grille-champs">
+    <div class="champ">
+      <label for="z-villes">Villes (une par ligne)</label>
+      <textarea id="z-villes" rows="5" placeholder="Lyon&#10;Marseille&#10;Toulouse" autocomplete="off"></textarea>
+    </div>
+    <div>
+      <div class="champ">
+        <label for="z-pays">Pays (2 lettres)</label>
+        <input id="z-pays" type="text" maxlength="2" value="{{ campagne.pays }}" autocomplete="off">
+      </div>
+      <div class="champ">
+        <label for="z-rayon">Rayon de recherche (km)</label>
+        <input id="z-rayon" type="number" min="1" max="200" step="1" placeholder="Défaut" autocomplete="off">
+        <p class="aide">Laisse vide pour le rayon par défaut.</p>
+      </div>
+    </div>
+  </div>
+  <div class="actions">
+    <button type="button" class="bouton" id="btn-ajout-zones">Ajouter les zones</button>
+    <span class="resultat" id="resultat-zones" role="status"></span>
+  </div>
+  <ul class="journal-zones" id="journal-zones"></ul>
+  <p class="aide">Chaque ville est localisée via OpenStreetMap (une par seconde, règle d'usage du service). Une ville introuvable est ajoutée quand même, signalée, et tu peux corriger ses coordonnées.</p>
+</section>
+
+{# ---------- Critères ---------- #}
+<section class="panneau" id="bloc-criteres" data-campagne-id="{{ campagne.id }}">
+  <h2>Critères de qualification</h2>
+  <p class="aide">Le score est la somme des points des critères détectés. Un critère à 0 ou désactivé n'entre plus dans le calcul. Ces réglages ne valent que pour cette campagne.</p>
+  <table class="tableau">
+    <thead><tr><th>Critère</th><th class="num">Points</th><th>Actif</th><th></th></tr></thead>
+    <tbody>
+      {% for k in criteres %}
+        <tr data-code="{{ k.code }}">
+          <td>{{ k.libelle }}<br><span class="code">{{ k.code }}</span></td>
+          <td class="num"><input type="number" min="0" max="100" step="1" value="{{ k.points }}" data-points aria-label="Points pour {{ k.libelle }}"></td>
+          <td><input type="checkbox" data-actif {% if k.actif %}checked{% endif %} aria-label="Actif : {{ k.libelle }}"></td>
+          <td><span class="resultat" data-etat role="status">{% if k.personnalise and k.points_global is not none and (k.points != k.points_global or not k.actif) %}modifié (défaut : {{ k.points_global }}){% endif %}</span></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4" class="vide">Aucun critère défini.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="aide invite" id="invite-recalcul" hidden>Poids modifié : recalcule les scores pour l'appliquer aux prospects déjà analysés.</p>
+  <div class="actions">
+    <button type="button" class="secondaire" id="btn-recalculer">Recalculer les scores de cette campagne</button>
+    <span class="resultat" id="resultat-recalcul" role="status"></span>
+  </div>
+  <p class="aide">Le recalcul est instantané : il utilise les problèmes déjà détectés, sans re-télécharger les sites.</p>
+</section>
+
+{# ---------- Angle du message ---------- #}
+<section class="panneau" id="bloc-angle" data-campagne-id="{{ campagne.id }}"
+         data-modeles='{{ modeles | tojson }}' data-courant="{{ campagne.modele_message_id or '' }}">
+  <h2>Angle du message</h2>
+  <div class="champ">
+    <label for="a-choix">Angle rattaché à cette campagne</label>
+    <select id="a-choix">
+      <option value="">— Aucun —</option>
+      {% for m in modeles %}<option value="{{ m.id }}" {% if m.id == campagne.modele_message_id %}selected{% endif %}>{{ m.nom }}</option>{% endfor %}
+    </select>
+    <p class="aide" id="a-usage"></p>
+  </div>
+  <div id="a-edition" {% if not modele %}hidden{% endif %}>
+    <div class="champ">
+      <label for="a-nom">Nom de l'angle</label>
+      <input id="a-nom" type="text" autocomplete="off">
+      <p class="erreur-champ" data-erreur-pour="nom" hidden></p>
+    </div>
+    <div class="champ">
+      <label for="a-objet">Gabarit de l'objet</label>
+      <input id="a-objet" type="text" autocomplete="off">
+      <p class="erreur-champ" data-erreur-pour="objet_template" hidden></p>
+    </div>
+    <div class="champ champ-large">
+      <label for="a-prompt">Prompt système donné à l'IA</label>
+      <textarea id="a-prompt" rows="16" autocomplete="off"></textarea>
+      <p class="aide">Variables disponibles : {% for v in variables %}<code>{{ '{' ~ v ~ '}' }}</code> {% endfor %}</p>
+      <p class="erreur-champ" data-erreur-pour="prompt_systeme" hidden></p>
+    </div>
+    <div class="champ">
+      <label for="a-signature">Signature de cet angle</label>
+      <textarea id="a-signature" rows="3" autocomplete="off"></textarea>
+      <p class="aide">Laisse vide pour utiliser la signature par défaut des réglages.</p>
+      <p class="erreur-champ" data-erreur-pour="signature" hidden></p>
+    </div>
+    <div class="actions">
+      <button type="button" class="bouton" id="btn-enregistrer-angle">Enregistrer l'angle</button>
+      <button type="button" class="secondaire" id="btn-copier-angle">Copier en un nouvel angle</button>
+      <span class="resultat" id="resultat-angle" role="status"></span>
+    </div>
+    <p class="aide">Les messages déjà générés gardent leur texte ; les prochains suivent ce prompt.</p>
+  </div>
+  <p class="vide" id="a-vide" {% if modele %}hidden{% endif %}>Aucun angle rattaché : choisis-en un dans la liste pour pouvoir générer des messages.</p>
+</section>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='campagnes.js') }}"></script>{% endblock %}

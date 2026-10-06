@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block titre %}Messages{% endblock %}
+{% block titre_page %}Messages{% endblock %}
+{% block sous_titre %}<p class="sous-titre-page">Relis, corrige et approuve : rien ne part sans ton clic.</p>{% endblock %}
+{% block entete_droite %}
+  <p class="compteurs" id="compteurs">
+    <strong id="cpt-attente">{{ en_attente }}</strong> en attente de validation
+    · <strong id="cpt-approuves">{{ approuves }}</strong> approuvé<span id="pluriel-approuves">{{ 's' if approuves > 1 }}</span> non envoyé<span id="pluriel-envoyes">{{ 's' if approuves > 1 }}</span>
+  </p>
+{% endblock %}
+{% block contenu %}
+<div class="deux-colonnes deux-colonnes-messages">
+  <section class="panneau liste-messages" aria-label="Prospects dont le message est prêt">
+    <div class="onglets" role="tablist">
+      <button type="button" role="tab" class="onglet actif" data-filtre="a_valider" aria-selected="true">À valider</button>
+      <button type="button" role="tab" class="onglet" data-filtre="approuves" aria-selected="false">Approuvés</button>
+    </div>
+    <ul id="file-messages" class="file"></ul>
+    <p class="vide" id="file-vide" hidden></p>
+  </section>
+
+  <section class="panneau" id="zone-message" aria-label="Message">
+    <p class="vide" id="message-vide">Choisis un prospect dans la liste pour lire, corriger et approuver son message.</p>
+    <div id="message-contenu" hidden>
+      <div class="fiche-tete">
+        <h2 id="m-nom"></h2>
+        <p class="aide" id="m-meta"></p>
+      </div>
+      <ul class="puces" id="m-problemes" aria-label="Problèmes détectés"></ul>
+      <div id="m-email-zone" class="bloc-email"></div>
+
+      <div class="champ champ-large" id="m-versions-zone" hidden>
+        <label for="m-versions">Version du message</label>
+        <select id="m-versions"></select>
+        <p class="aide" id="m-version-info"></p>
+      </div>
+
+      <div class="champ champ-large">
+        <label for="m-objet">Objet</label>
+        <input type="text" id="m-objet" autocomplete="off">
+      </div>
+      <div class="champ champ-large">
+        <label for="m-corps">Message <span class="code" id="m-mots"></span></label>
+        <textarea id="m-corps" rows="14" autocomplete="off"></textarea>
+        <p class="aide pied-message">Ajouté automatiquement en bas de l'email à l'envoi : <em id="m-mention"></em></p>
+      </div>
+
+      <details class="apercu-zone" id="m-apercu-zone">
+        <summary>Aperçu de l'email tel qu'il sera reçu</summary>
+        <p class="aide" id="m-apercu-info"></p>
+        <iframe id="m-apercu" class="apercu-mail" title="Aperçu de l'email" sandbox=""></iframe>
+      </details>
+
+      <p class="erreur-champ" id="m-erreur" hidden></p>
+      <div class="actions">
+        <button type="button" class="bouton" id="btn-approuver">Approuver</button>
+        <button type="button" class="secondaire" id="btn-enregistrer">Enregistrer mes corrections</button>
+        <button type="button" class="secondaire" id="btn-regenerer">Régénérer</button>
+        <button type="button" class="secondaire" id="btn-ignorer">Ignorer ce prospect</button>
+        <button type="button" class="secondaire" id="btn-desapprouver" hidden>Retirer l'approbation</button>
+        <span class="resultat" id="m-resultat" role="status"></span>
+      </div>
+      <p class="aide" id="m-aide-approbation"></p>
+      <p class="aide">Raccourcis : <kbd>Ctrl</kbd>+<kbd>Entrée</kbd> approuve · <kbd>Alt</kbd>+<kbd>↓</kbd> / <kbd>↑</kbd> prospect suivant / précédent.</p>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='messages.js') }}"></script>{% endblock %}

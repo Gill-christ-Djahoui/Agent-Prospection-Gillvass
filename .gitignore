@@ -1,0 +1,13 @@
+# Secrets et données locales : ne jamais versionner
+.env
+data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

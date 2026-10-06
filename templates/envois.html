@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% from "_composants.html" import etat_vide %}
+{% block titre %}Envois{% endblock %}
+{% block titre_page %}Envois{% endblock %}
+{% block sous_titre %}<p class="sous-titre-page">Expédition prudente, suivi des ouvertures et relances.</p>{% endblock %}
+
+{% macro statut_libelle(l) -%}
+  {%- if l.statut == 'echec' -%}
+    {%- if l.incertain %}Incertain{% elif (l.erreur or '').startswith('Refusé') %}Refusé{% else %}Échec{% endif -%}
+  {%- else -%}{{ {'envoye': 'Envoyé', 'ouvert': 'Ouvert', 'repondu': 'Répondu'}[l.statut] }}{%- endif -%}
+{%- endmacro %}
+
+{% block contenu %}
+<section class="panneau" id="panneau-quota">
+  <h2>Quota du jour</h2>
+  <p class="gros-chiffre"><strong id="q-envoyes">{{ quota.envoyes }}</strong> envoyé{{ 's' if quota.envoyes > 1 }} aujourd'hui sur <strong>{{ quota.plafond }}</strong> autorisés
+    <span class="aide">· reste {{ quota.reste }}</span></p>
+  <progress max="{{ quota.plafond or 1 }}" value="{{ quota.envoyes }}" aria-label="Quota du jour"></progress>
+  <p class="aide">Créneaux qui fonctionnent en général : jours ouvrés, milieu de matinée. Ta propre statistique, par heure et par jour, est dans <a href="{{ url_for('analyses') }}">Analyses</a>.</p>
+  <p class="aide">Le plafond se règle dans <a href="{{ url_for('reglages') }}">Réglages</a>. Montée recommandée pour une adresse neuve : 20 par jour la première semaine, 35, 50, puis 80 à 100.</p>
+</section>
+
+<section class="panneau" id="panneau-envoi">
+  <h2>Envoyer</h2>
+  {% if mode_essai %}
+    <p class="bandeau-essai"><strong>Mode essai actif.</strong> Seuls ces destinataires peuvent recevoir un email : {{ mode_essai|join(', ') }}.
+      {% if nb_hors_essai %}{{ nb_hors_essai }} message{{ 's' if nb_hors_essai > 1 }} approuvé{{ 's' if nb_hors_essai > 1 }} destiné{{ 's' if nb_hors_essai > 1 }} à d'autres adresses ne partira{{ 'ont' if nb_hors_essai > 1 }} pas.{% endif %}
+      <a href="{{ url_for('reglages') }}">Modifier</a></p>
+  {% endif %}
+  {% if manquants %}
+    <p class="resultat statut-attention">Réglages incomplets : il manque {{ manquants|join(', ') }}. <a href="{{ url_for('reglages') }}">Compléter les Réglages</a>.</p>
+  {% endif %}
+  <p>
+    <strong>{{ nb_approuves }}</strong> message{{ 's' if nb_approuves > 1 }} approuvé{{ 's' if nb_approuves > 1 }} en attente
+    {% if nb_bloques %}· <span class="resultat statut-attention">{{ nb_bloques }} en liste noire (ne partiront pas)</span>{% endif %}
+  </p>
+  {% if a_envoyer > 0 %}
+    <p class="aide">{{ a_envoyer }} partiront maintenant (dans la limite du quota), avec une pause de {{ pause_min }} à {{ pause_max }} s entre deux emails : compte environ {{ minutes }} min. Tu peux arrêter à tout moment.</p>
+  {% endif %}
+  <div class="actions">
+    <button type="button" class="bouton" id="btn-envoyer" data-a-envoyer="{{ a_envoyer }}" data-pause="{{ minutes }}"
+            {% if a_envoyer < 1 or manquants or job_actif %}disabled{% endif %}>Envoyer les messages approuvés</button>
+    <button type="button" class="secondaire danger" id="btn-arreter" {% if not job_actif %}hidden{% endif %}>Arrêter l'envoi</button>
+    <span class="resultat" id="resultat-envoi" role="status"></span>
+  </div>
+  {% if nb_approuves == 0 and not manquants %}
+    <p class="vide">Aucun message approuvé. Approuve des messages dans l'écran <a href="{{ url_for('messages') }}">Messages</a>, puis reviens ici.</p>
+  {% endif %}
+
+  <div id="panneau-job" data-job-id="{{ job.id if job else '' }}" data-actif="{{ '1' if job_actif else '' }}" {% if not job %}hidden{% endif %}>
+    <h3 id="job-titre">{% if job %}Dernier envoi — {{ {'en_attente': 'en attente…', 'en_cours': 'en cours…', 'termine': 'terminé', 'erreur': 'en erreur'}[job.statut] }}{% endif %}</h3>
+    <progress id="job-barre" max="100" value="{{ job.progression if job else 0 }}"></progress>
+    <p id="job-detail" class="job-detail{% if job and job.statut == 'erreur' %} statut-erreur{% endif %}">{{ job.detail if job else '' }}</p>
+  </div>
+</section>
+
+<section class="panneau" id="panneau-suivi" data-auto="{{ '1' if suivi_possible else '' }}">
+  <h2>Suivi</h2>
+  <p class="aide">Les ouvertures sont lues chez Brevo. Un rebond définitif ou une désinscription entre aussitôt en liste noire, pour toutes les campagnes. Les réponses arrivent dans ta boîte mail : marque le prospect « répondu » dans l'historique ci-dessous.</p>
+  <div class="actions">
+    <button type="button" class="secondaire" id="btn-suivi" {% if not suivi_possible %}disabled{% endif %}>Actualiser le suivi</button>
+    <span class="resultat" id="resultat-suivi" role="status">{% if derniere_sync %}dernière mise à jour : {{ derniere_sync }}{% elif not suivi_possible %}aucun envoi à suivre pour l'instant{% endif %}</span>
+  </div>
+</section>
+
+<section class="panneau" id="panneau-relances">
+  <h2>Relances à préparer <span class="badge">{{ relances|length }}</span></h2>
+  <p class="aide">Un prospect sans réponse après {{ delai_relance }} jours remonte ici (deux relances au maximum, puis abandon). La relance suit le même chemin qu'un premier message : génération, validation dans l'écran Messages, envoi.</p>
+  {% if relances %}
+    <table class="tableau">
+      <thead><tr><th>Prospect</th><th>Campagne</th><th>Dernier envoi</th><th>Relance</th><th></th></tr></thead>
+      <tbody>
+        {% for r in relances %}
+          <tr>
+            <td>{{ r.nom }}<br><span class="code">{{ r.email }}</span></td>
+            <td>{{ r.campagne_nom }}</td>
+            <td>{{ r.date_locale }}</td>
+            <td>n°{{ r.numero }}</td>
+            <td class="actions-ligne">
+              <button type="button" class="secondaire" data-relancer="{{ r.id }}">Préparer la relance</button>
+              <button type="button" class="secondaire" data-repondu="{{ r.id }}">A répondu</button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="actions">
+      <button type="button" class="bouton" id="btn-relancer-tout">Préparer toutes les relances ({{ relances|length }})</button>
+      <span class="resultat" id="resultat-relance" role="status"></span>
+    </div>
+    <div id="panneau-relance-job" hidden>
+      <progress id="relance-barre" max="100" value="0"></progress>
+      <p id="relance-detail" class="job-detail"></p>
+    </div>
+  {% else %}
+    <p class="vide">Aucune relance à faire. Les prospects restés sans réponse apparaîtront ici {{ delai_relance }} jours après l'envoi.</p>
+  {% endif %}
+</section>
+
+<div class="filtres" id="filtres-envois">
+  <label>Campagne
+    <select id="fe-campagne">
+      <option value="">Toutes</option>
+      {% for c in campagnes %}<option value="{{ c.id }}">{{ c.nom }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Période
+    <select id="fe-periode">
+      <option value="">Tout l'historique</option>
+      <option value="0">Aujourd'hui</option>
+      <option value="7">7 derniers jours</option>
+      <option value="30">30 derniers jours</option>
+    </select>
+  </label>
+</div>
+
+<table class="tableau" id="tableau-envois">
+  <thead>
+    <tr><th>Destinataire</th><th>Campagne</th><th>Date</th><th>Statut</th><th>Ouverture</th><th>Réponse</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for l in historique %}
+      <tr data-campagne="{{ l.campagne_id }}" data-jour="{{ l.jour_local }}">
+        <td>{{ l.nom }}<br><span class="code">{{ l.email }}</span></td>
+        <td>{{ l.campagne_nom }}</td>
+        <td>{{ l.date_locale }}</td>
+        <td>
+          <span class="chip chip-{{ 'incertain' if l.incertain else l.statut }}">{{ statut_libelle(l) }}</span>
+          {% if l.erreur %}<br><span class="code">{{ l.erreur }}</span>{% endif %}
+          {% if l.incertain %}
+            <br><button type="button" class="secondaire" data-resoudre="{{ l.id }}" data-envoye="1">Il est bien parti</button>
+            <button type="button" class="secondaire" data-resoudre="{{ l.id }}" data-envoye="0">Il n'est pas parti</button>
+          {% endif %}
+        </td>
+        <td>{{ 'Oui' if l.statut in ['ouvert', 'repondu'] else '—' }}</td>
+        <td>{{ 'Oui' if l.statut == 'repondu' else '—' }}</td>
+        <td>{% if l.statut in ['envoye', 'ouvert'] and l.statut_prospect == 'envoye' %}<button type="button" class="secondaire" data-repondu="{{ l.prospect_id }}">A répondu</button>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    <tr class="ligne-vide" id="vide-envois" {% if historique %}hidden{% endif %}>
+      <td colspan="7" class="vide" id="texte-vide-envois">{{ etat_vide('envois', "Aucun envoi pour l'instant", "Approuve des messages dans l'écran Messages, puis reviens ici pour les envoyer.", url_for('messages'), "Aller aux messages") }}</td>
+    </tr>
+  </tbody>
+</table>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='envois.js') }}"></script>{% endblock %}
