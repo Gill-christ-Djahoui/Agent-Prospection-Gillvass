@@ -12,8 +12,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-from core import db
+from core import db, seeds
 from core.reglages import ErreurValidation
+from core.seeds import copier_angle_pour
 from core.writer import VARIABLES_PROMPT
 
 journal = logging.getLogger("prospect")
@@ -52,13 +53,16 @@ def _code_langue(valeur):
 
 
 def _liste_requetes(valeur):
+    """Une recherche par ligne ; une virgule ou un point-virgule sépare aussi deux recherches
+    (« avocat, cabinet d'avocats » = deux recherches, pas une)."""
     elements = valeur.splitlines() if isinstance(valeur, str) else list(valeur or [])
     vues, propres = set(), []
     for element in elements:
-        texte = " ".join(str(element).split())
-        if texte and texte.lower() not in vues:
-            vues.add(texte.lower())
-            propres.append(texte)
+        for morceau in re.split(r"[,;]", str(element)):
+            texte = " ".join(morceau.split())
+            if texte and texte.lower() not in vues:
+                vues.add(texte.lower())
+                propres.append(texte)
     return propres
 
 
@@ -180,6 +184,7 @@ def creer(conn, champs, modele_depart_id=None):
         "INSERT INTO campagnes (nom, secteur, pays, langue, requetes, statut, est_modele) "
         "VALUES (?, ?, ?, ?, '[]', 'brouillon', 0)",
         (propres["nom"], propres["secteur"], propres["pays"], propres["langue"]))
+    copier_angle_pour(conn, curseur.lastrowid)  # une campagne neuve a toujours un angle : jamais « aucun angle rattaché »
     journal.info("campagne créée : id=%s", curseur.lastrowid)
     return curseur.lastrowid
 
@@ -278,7 +283,7 @@ def supprimer(conn, campagne_id, forcer=False):
     compte = {"envois": conn.execute(
         f"DELETE FROM envois WHERE message_id IN (SELECT id FROM messages WHERE prospect_id IN {de_la_campagne})",
         (campagne_id,)).rowcount}
-    for journal_du_prospect in ("appels", "contacts_formulaire"):  # les journaux de contact partent avec leurs prospects
+    for journal_du_prospect in ("appels", "contacts_formulaire", "contacts_social", "reponses"):  # les journaux de contact partent avec leurs prospects
         conn.execute(f"DELETE FROM {journal_du_prospect} WHERE prospect_id IN {de_la_campagne}", (campagne_id,))
     compte["messages"] = conn.execute(
         f"DELETE FROM messages WHERE prospect_id IN {de_la_campagne}", (campagne_id,)).rowcount
@@ -469,6 +474,22 @@ def _autotests():
             fiche = lire(c, cid)["campagne"]
             verifier("création : valeurs normalisées (pays FR, langue fr, nom rogné)",
                      fiche["pays"] == "FR" and fiche["langue"] == "fr" and fiche["nom"] == "Cliniques — France Sud")
+            modele_neuve = lire(c, cid)["modele"]
+            catalogue = [m["nom"] for m in lister_modeles_message(c)]
+            verifier("catalogue d'angles installé (tous les métiers et tous les problèmes), sans doublon de nom",
+                     all(nom in catalogue for nom, *_ in seeds.ANGLES_CATALOGUE) and len(catalogue) == len(set(catalogue))
+                     and len(seeds.ANGLES_CATALOGUE) >= 15)
+            verifier("une campagne neuve a TOUJOURS un angle (copie de l'angle par défaut, indépendante) : plus de « aucun angle rattaché »",
+                     modele_neuve is not None and modele_neuve["nom"].startswith(seeds.ANGLE_PAR_DEFAUT)
+                     and "Entre 45 et 70 mots" in modele_neuve["prompt_systeme"] and modele_neuve["nb_campagnes"] == 1)
+            c.execute("UPDATE campagnes SET modele_message_id = NULL WHERE id = ?", (cid,))
+            c.execute("UPDATE reglages SET valeur = '0' WHERE cle = 'angles_catalogue_version'")
+            seeds.appliquer_seeds(c)
+            verifier("mise à jour : une campagne qui n'avait aucun angle en reçoit un, sans toucher aux autres campagnes",
+                     lire(c, cid)["modele"] is not None
+                     and c.execute("SELECT COUNT(*) FROM campagnes WHERE modele_message_id IS NULL AND est_modele = 0").fetchone()[0] == 0)
+            verifier("une virgule sépare deux recherches : « avocat, cabinet d'avocats » = 2 recherches",
+                     _liste_requetes("avocat, cabinet d'avocats\nArchitecte; avocat") == ["avocat", "cabinet d'avocats", "Architecte"])
             verifier("création invalide refusée avec le détail par champ",
                      set(_leve(creer, c, {"nom": "", "secteur": "x", "pays": "FRA", "langue": "f"}) or {})
                      == {"nom", "pays", "langue"})

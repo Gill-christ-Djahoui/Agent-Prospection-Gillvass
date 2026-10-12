@@ -37,7 +37,7 @@ ENV_VERS_REGLAGES = {
 
 TABLES_ATTENDUES = {
     "reglages", "modeles_message", "campagnes", "zones", "criteres",
-    "prospects", "messages", "envois", "liste_noire", "jobs", "appels", "contacts_formulaire",
+    "prospects", "messages", "envois", "liste_noire", "jobs", "appels", "contacts_formulaire", "reponses", "contacts_social",
 }
 
 # --------------------------------------------------------------------------------------
@@ -291,7 +291,47 @@ PRAGMA user_version = 4;
 COMMIT;
 """
 
-MIGRATIONS = [(1, _MIGRATION_1), (2, _MIGRATION_2), (3, _MIGRATION_3), (4, _MIGRATION_4)]
+_MIGRATION_5 = """
+BEGIN;
+-- Réponses lues dans la boîte mail de l'utilisateur (lecture seule) : une ligne par message reçu qui se rapporte à un envoi.
+CREATE TABLE reponses (
+    id          INTEGER PRIMARY KEY,
+    prospect_id INTEGER NOT NULL REFERENCES prospects(id),
+    recu_le     TEXT NOT NULL,
+    expediteur  TEXT NOT NULL,
+    objet       TEXT,
+    extrait     TEXT,
+    type        TEXT NOT NULL CHECK (type IN ('reponse', 'stop', 'automatique')),
+    identifiant TEXT NOT NULL UNIQUE
+);
+CREATE INDEX ix_reponses_prospect ON reponses (prospect_id, id);
+PRAGMA user_version = 5;
+COMMIT;
+"""
+
+_MIGRATION_6 = """
+BEGIN;
+-- Canal « message privé » (Facebook, Instagram…) : le lien du profil du commerce, la fiche Google Maps (où l'on voit ses
+-- réseaux, ses horaires, ses photos), le message préparé et le journal de ce qui a été envoyé à la main.
+ALTER TABLE prospects ADD COLUMN profil_social_url TEXT;
+ALTER TABLE prospects ADD COLUMN maps_url TEXT;
+ALTER TABLE prospects ADD COLUMN message_social TEXT;
+-- Les « sites » déjà enregistrés qui sont en réalité une page Facebook ou Instagram deviennent des profils.
+UPDATE prospects SET profil_social_url = site
+ WHERE site IS NOT NULL AND (lower(site) LIKE '%facebook.com/%' OR lower(site) LIKE '%instagram.com/%' OR lower(site) LIKE '%fb.com/%');
+CREATE TABLE contacts_social (
+    id          INTEGER PRIMARY KEY,
+    prospect_id INTEGER NOT NULL REFERENCES prospects(id),
+    fait_le     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    resultat    TEXT NOT NULL CHECK (resultat IN ('envoye', 'reponse', 'pas_interesse', 'introuvable')),
+    note        TEXT
+);
+CREATE INDEX ix_contacts_social_prospect ON contacts_social (prospect_id, id);
+PRAGMA user_version = 6;
+COMMIT;
+"""
+
+MIGRATIONS = [(1, _MIGRATION_1), (2, _MIGRATION_2), (3, _MIGRATION_3), (4, _MIGRATION_4), (5, _MIGRATION_5), (6, _MIGRATION_6)]
 
 # --------------------------------------------------------------------------------------
 # Normalisation
@@ -517,7 +557,7 @@ def est_en_liste_noire(conn, email):
 
 _CHAMPS_PROSPECT = (
     "campagne_id", "zone_id", "nom", "adresse", "ville", "telephone", "site",
-    "email", "source", "source_id", "note_moyenne", "nb_avis",
+    "email", "source", "source_id", "note_moyenne", "nb_avis", "maps_url",
 )
 
 
@@ -535,13 +575,15 @@ def inserer_prospect(conn, prospect):
     domaine = extraire_domaine(valeurs["site"])
     # Un site hébergé sur une plateforme (doctolib.fr…) ne sert pas au dédoublonnage : deux cabinets peuvent partager ce domaine.
     valeurs["site_domaine"] = None if est_plateforme(domaine, _get_json(conn, "domaines_plateformes")) else domaine
+    # Le « site » d'un commerce est souvent sa page Facebook ou Instagram : c'est alors son profil, pas un site à auditer.
+    valeurs["profil_social_url"] = valeurs["site"] if est_plateforme(domaine, _get_json(conn, "domaines_reseaux") or []) else None
 
     curseur = conn.execute(
         """INSERT INTO prospects
                (campagne_id, zone_id, nom, nom_normalise, adresse, ville, telephone, site,
-                site_domaine, email, source, source_id, note_moyenne, nb_avis)
+                site_domaine, email, source, source_id, note_moyenne, nb_avis, maps_url, profil_social_url)
            VALUES (:campagne_id, :zone_id, :nom, :nom_normalise, :adresse, :ville, :telephone,
-                   :site, :site_domaine, :email, :source, :source_id, :note_moyenne, :nb_avis)
+                   :site, :site_domaine, :email, :source, :source_id, :note_moyenne, :nb_avis, :maps_url, :profil_social_url)
            ON CONFLICT DO NOTHING""",
         valeurs,
     )

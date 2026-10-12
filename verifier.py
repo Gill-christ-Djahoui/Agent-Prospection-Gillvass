@@ -15,8 +15,8 @@ import tempfile
 
 RACINE = pathlib.Path(__file__).resolve().parent
 MODULES = ["db", "auth", "campagnes", "sourcing", "analyzer", "importer", "writer", "messages", "sender", "suivi",
-           "sauvegarde", "domaine", "analyses", "analyste", "courriel", "niche", "appels", "formulaires"]
-ECRANS = ["/", "/campagnes", "/campagnes/1", "/prospects", "/formulaires", "/appels", "/messages", "/envois", "/analyses", "/reglages"]
+           "sauvegarde", "domaine", "analyses", "analyste", "courriel", "niche", "appels", "formulaires", "social", "boite"]
+ECRANS = ["/", "/campagnes", "/campagnes/1", "/prospects", "/formulaires", "/messages-prives", "/appels", "/messages", "/envois", "/analyses", "/reglages"]
 IDENTIFIANT_TEST, MOT_DE_PASSE_TEST = "verif", "mot-de-passe-de-verification"
 
 
@@ -127,7 +127,12 @@ def acces_et_ecrans():
              application.test_client().post("/api/niche/proposer", json={}).status_code == 401
              and application.test_client().post("/api/niche/creer", json={}).status_code == 401)
     # --- appels téléphoniques : écran et API ---
-    verifier("l'écran Appels est dans le rail de navigation", 'href="/appels"' in client.get("/").get_data(as_text=True))
+    verifier("l'écran Appels est caché du menu par défaut (pas de numéro : pas d'appels)", 'href="/appels"' not in client.get("/").get_data(as_text=True))
+    with db.connexion() as conn:
+        db.set_reglage(conn, "canal_appels", "oui")
+    verifier("réglage « canal téléphone : oui » : l'écran Appels apparaît dans le menu", 'href="/appels"' in client.get("/").get_data(as_text=True))
+    with db.connexion() as conn:
+        db.set_reglage(conn, "canal_appels", "non")
     page = client.get("/appels").get_data(as_text=True)
     verifier("l'écran Appels propose les filtres, la fiche d'appel et ses six résultats",
              'id="f-contact"' in page and 'id="fiche-appel"' in page and page.count('data-resultat="') == 6 and "appels.js" in page)
@@ -178,6 +183,30 @@ def acces_et_ecrans():
     verifier("formulaires sans connexion : refusés (401)",
              application.test_client().get("/api/formulaires/file").status_code == 401
              and application.test_client().post(f"/api/campagnes/{appel_c}/contacts", json={}).status_code == 401)
+    # --- messages privés (Facebook, Instagram…) : écran, API ---
+    verifier("l'écran Messages privés est dans le rail de navigation", 'href="/messages-prives"' in client.get("/").get_data(as_text=True))
+    page = client.get("/messages-prives").get_data(as_text=True)
+    verifier("l'écran Messages privés propose l'adresse du profil, la copie du message et ses quatre résultats",
+             'id="fs-profil"' in page and 'id="fs-copier"' in page and page.count('data-resultat="') == 4 and "social.js" in page)
+    with db.connexion() as conn:
+        conn.execute("UPDATE prospects SET formulaire_url = NULL, profil_social_url = 'https://www.facebook.com/cabinet', email = NULL WHERE id = ?", (pid,))
+    file_social = client.get("/api/social/file?etat=tous").get_json()
+    verifier("file de messages privés : le prospect sans email avec un profil y est, avec ses liens (profil, recherche) et son vrai problème",
+             [l["nom"] for l in file_social["lignes"]] == ["Cabinet Appel"]
+             and [x["type"] for x in file_social["lignes"][0]["liens"]] == ["profil", "recherche"]
+             and file_social["lignes"][0]["problemes"] == ["Aucun site web"])
+    r = client.post(f"/api/social/{pid}/profil", json={"profil": "instagram.com/cabinet"})
+    verifier("adresse de profil collée : enregistrée complète (200) ; invalide : 400",
+             r.status_code == 200 and r.get_json()["profil_social_url"] == "https://instagram.com/cabinet"
+             and client.post(f"/api/social/{pid}/profil", json={"profil": "n'importe quoi"}).status_code == 400)
+    r = client.post(f"/api/social/{pid}/resultat", json={"resultat": "envoye", "note": "Instagram"})
+    verifier("message privé noté (200), visible dans la fiche", r.status_code == 200
+             and client.get(f"/api/social/{pid}").get_json()["historique"][0]["note"] == "Instagram", r.status_code)
+    r = client.post(f"/api/social/{pid}/message", json={})
+    verifier("message privé sans IA configurée : message clair (400)", r.status_code == 400 and "Réglages" in r.get_json()["erreur"], r.status_code)
+    verifier("messages privés sans connexion : refusés (401)",
+             application.test_client().get("/api/social/file").status_code == 401
+             and application.test_client().post(f"/api/social/{pid}/resultat", json={"resultat": "envoye"}).status_code == 401)
     import time as _temps
     from core import jobs as _jobs
     for _ in range(100):  # laisse finir la tâche avant de supprimer la campagne

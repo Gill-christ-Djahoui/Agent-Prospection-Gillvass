@@ -26,7 +26,7 @@ journal = logging.getLogger("prospect")
 
 # Variables que le prompt, l'objet et la signature d'un modèle de message peuvent contenir
 # (liste imposée par la spécification). Toute autre {variable} est refusée à l'enregistrement.
-VARIABLES_PROMPT = ("nom", "ville", "secteur", "problemes", "score", "site", "expediteur", "signature")
+VARIABLES_PROMPT = ("nom", "ville", "secteur", "problemes", "score", "site", "expediteur", "signature", "reputation")
 
 STATUTS_GENERABLES = ("qualifie", "message_pret", "approuve")  # un prospect ignoré ou déjà contacté ne l'est pas
 _STATUTS_CONFIG = {400, 401, 403, 404}  # erreurs qui se répéteront à l'identique pour tous les prospects
@@ -55,19 +55,32 @@ def configuration_manquante(cfg):
     return manquants
 
 
+_ESSAIS_IA = 4
+
+
+def _pause_avant_nouvel_essai(reponse):
+    """Secondes à attendre avant de retenter : celles que le fournisseur demande (« Please try again in 8.5s » : limite de
+    jetons par minute des paliers gratuits), plus une marge ; 10 s à défaut, 30 s au plus."""
+    trouve = re.search(r"try again in (\d+(?:\.\d+)?)\s*(ms|s)", reponse.text or "")
+    if not trouve:
+        return 10
+    secondes = float(trouve.group(1)) / (1000 if trouve.group(2) == "ms" else 1)
+    return min(30.0, max(2.0, secondes + 1.5))
+
+
 def appeler_ia(cfg, messages):
     """Envoie la conversation au fournisseur et renvoie le texte de la réponse. Lève ErreurRedaction."""
     endpoint, modele, cle = (cfg["ai_endpoint"].strip(), cfg["ai_model"].strip(), cfg["ai_key"].strip())
     timeout = int(cfg["timeout_ia_s"])
-    for essai in range(2):  # un fournisseur saturé (429, 5xx) est retenté une fois, après une pause
+    for essai in range(_ESSAIS_IA):  # un fournisseur saturé (429, 5xx) est retenté après une pause
         try:
             reponse = http.requete("POST", endpoint, timeout=timeout,
                                    headers={"Authorization": f"Bearer {cle}", "Content-Type": "application/json"},
                                    json={"model": modele, "messages": messages})
         except requests.RequestException as erreur:
             raise ErreurRedaction(http.message_erreur_reseau(erreur, timeout)) from erreur
-        if (reponse.status_code == 429 or reponse.status_code >= 500) and essai == 0:
-            time.sleep(10)
+        if (reponse.status_code == 429 or reponse.status_code >= 500) and essai < _ESSAIS_IA - 1:
+            time.sleep(_pause_avant_nouvel_essai(reponse))
             continue
         if not reponse.ok:
             raise ErreurRedaction(f"Le fournisseur d'IA refuse la requête (HTTP {reponse.status_code}) : "
@@ -107,8 +120,38 @@ def _nettoyer_reponse(texte):
     texte = texte.strip()
     texte = re.sub(r"^```[a-z]*\n|\n```$", "", texte).strip()
     texte = re.sub(r"^(objet|subject)\s*:.*\n+", "", texte, flags=re.I)  # l'objet vient du gabarit, pas de l'IA
-    texte = "\n".join(l.rstrip() for l in texte.splitlines())  # l'IA termine souvent ses lignes par deux espaces (retour Markdown)
-    return re.sub(r"\n{3,}", "\n\n", texte).strip()
+    texte = texte.replace("‑", "-").replace("‐", "-")  # traits d'union « insécables » que l'IA glisse parfois
+    lignes = [l.strip() for l in texte.splitlines()]  # deux espaces en fin de ligne (Markdown), ou un espace en début de ligne
+    # La salutation (« Bonjour Maître, ») reste seule sur sa ligne, suivie d'une ligne vide, et le texte qui suit commence
+    # par une majuscule : jamais « Bonjour Maître,\nj'ai remarqué… » collé.
+    coupe = re.match(r"^(Bonjour(?: [^\W\d_]+){0,2}),\s+(\S.*)$", lignes[0]) if lignes else None
+    if coupe:  # « Bonjour, je m'appelle Gill… » : la salutation seule sur sa ligne, la suite dessous
+        lignes[0:1] = [coupe.group(1) + ",", "", coupe.group(2)]
+    if len(lignes) > 1 and lignes[0].endswith(",") and len(lignes[0].split()) <= 4:
+        if lignes[1].strip():
+            lignes.insert(1, "")
+        suite = next((i for i in range(1, len(lignes)) if lignes[i].strip()), None)
+        if suite is not None:
+            lignes[suite] = lignes[suite][:1].upper() + lignes[suite][1:]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lignes)).strip()
+
+
+def reputation(prospect):
+    """Ce que la fiche Google de l'établissement dit de lui (note et nombre d'avis), en une ligne pour le prompt : le seul
+    fait flatteur et vrai qu'on connaisse avant d'écrire. « Aucune information » si Google ne donne rien."""
+    note, avis = prospect["note_moyenne"], prospect["nb_avis"]
+    if not note or not avis:
+        return "aucune information sur ses avis"
+    return f"note de {str(round(float(note), 1)).replace('.', ',')} sur 5, {int(avis)} avis"
+
+
+def nom_pour_objet(nom, maximum=45):
+    """Nom d'établissement raccourci pour un objet d'email : coupé avant « - », « – » ou « | » (« Maître X - Préjudices
+    corporels… » devient « Maître X »), puis au dernier mot entier si c'est encore trop long."""
+    court = re.split(r"\s[-–—|]\s", (nom or "").strip(), maxsplit=1)[0].strip() or (nom or "").strip()
+    if len(court) > maximum:
+        court = court[:maximum].rsplit(" ", 1)[0].rstrip(" ,;:-–—")
+    return court
 
 
 def _sans_ponctuation(texte):
@@ -123,7 +166,8 @@ def poser_signature(corps, signature):
     """
     if not signature:
         return corps
-    attendues = [_sans_ponctuation(l) for l in signature.splitlines() if l.strip()]
+    signature = "\n".join(l.strip() for l in signature.strip().splitlines())  # « Gill, » + espace en fin de ligne dans les réglages
+    attendues =[_sans_ponctuation(l) for l in signature.splitlines() if l.strip()]
     lignes = corps.rstrip().split("\n")
     for k in range(len(attendues), 0, -1):  # la plus longue recopie d'abord (signature entière, puis juste le début)
         fin = [l for l in lignes if l.strip()][-k:]
@@ -141,6 +185,13 @@ def verifier_message(corps, signature, cfg):
     defauts = []
     if _RE_LIEN.search(corps):
         defauts.append("il contient un lien ou une adresse web (interdit dans un premier message)")
+    # Mots de vente et de menace : la consigne les interdit déjà, mais l'IA en laisse passer ; ici on les contrôle vraiment.
+    interdits = [m.strip().lower() for m in json.loads(cfg.get("mots_interdits_message") or "[]") if m.strip()]
+    trouves = sorted({m for m in interdits if re.search(r"(?<!\w)" + re.escape(m), corps.lower())})
+    if trouves:
+        defauts.append("il contient des mots interdits : " + ", ".join("« " + m + " »" for m in trouves) + " (reformule sans eux)")
+    if re.search(r"oui ou non", corps, re.I):
+        defauts.append("la question ne doit pas contenir « oui ou non »")
     maximum = int(cfg.get("mots_max_message") or 0)
     if maximum:
         sans_signature = corps.replace(signature, "") if signature else corps
@@ -192,7 +243,7 @@ def _preparer(conn, cfg, prospect_id, relance=False):
         "problemes": "\n".join(f"- {c['libelle']}" for c in concrets),
         "score": min(p["score"], scorer.PLAFOND_AFFICHAGE),
         "site": p["site"] or "aucun site web connu", "expediteur": cfg["expediteur_nom"].strip(),
-        "signature": signature,
+        "signature": signature, "reputation": reputation(p),
     }
     return {"prospect": dict(p), "campagne": dict(campagne), "modele": dict(modele), "valeurs": valeurs,
             "signature": signature, "relance": infos_relance}
@@ -244,7 +295,8 @@ def generer_message(cfg, prospect_id, forcer=False, relance=False):
     if prep["relance"]:
         objet = "Re: " + re.sub(r"^(re\s*:\s*)+", "", prep["relance"]["objet_precedent"], flags=re.I)
     else:
-        objet = " ".join(rendre(prep["modele"]["objet_template"], prep["valeurs"]).split())[:200]
+        objet = " ".join(rendre(prep["modele"]["objet_template"],
+                                {**prep["valeurs"], "nom": nom_pour_objet(prep["valeurs"]["nom"])}).split())[:200]
 
     with db.connexion() as conn:
         version = conn.execute("SELECT COALESCE(MAX(version), 0) + 1 FROM messages WHERE prospect_id = ?",
@@ -406,8 +458,21 @@ def _autotests():
     verifier("réponse de l'IA nettoyée : espaces de fin de ligne retirés (retours Markdown), jamais plus d'une ligne vide, paragraphes gardés",
              _nettoyer_reponse("Objet : x\nBonjour,  \n\n\n\nPremière phrase.  \nDeuxième phrase.\n\nQuestion ?  ")
              == "Bonjour,\n\nPremière phrase.\nDeuxième phrase.\n\nQuestion ?")
+    verifier("salutation seule sur sa ligne, ligne vide après, majuscule ensuite (jamais « Bonjour Maître,\\nj'ai remarqué… » collé)",
+             _nettoyer_reponse("Bonjour Maître,\nj'ai remarqué un souci.\n\nQuestion ?") == "Bonjour Maître,\n\nJ'ai remarqué un souci.\n\nQuestion ?"
+             and _nettoyer_reponse("Bonjour,\n\nPremière phrase.") == "Bonjour,\n\nPremière phrase."
+             and _nettoyer_reponse("Phrase d'ouverture qui ne se termine pas par une virgule.\nSuite.") == "Phrase d'ouverture qui ne se termine pas par une virgule.\nSuite.")
+    verifier("objet d'email : nom raccourci avant « - », puis au dernier mot entier ; un nom court reste tel quel",
+             nom_pour_objet("Maître Karen BOUTBOUL-SZTARK - Préjudices corporels et accidents de la route") == "Maître Karen BOUTBOUL-SZTARK"
+             and nom_pour_objet("Cabinet Dentaire Saint Michel") == "Cabinet Dentaire Saint Michel"
+             and len(nom_pour_objet("Société civile professionnelle d'avocats associés Martin Durand Lefebvre")) <= 45
+             and nom_pour_objet("A - B") == "A")
+    ancien = seeds._REGLE_PROBLEME.join(["Texte\n", "Suite"])
+    verifier("règle d'honnêteté ajoutée aux angles déjà en base, une seule fois (idempotent) ; un angle neuf l'a déjà",
+             seeds._REGLE_CONDITIONNEL in seeds.composer_prompt("Angle : x")
+             and ancien.replace(seeds._REGLE_PROBLEME, seeds._REGLE_PROBLEME + seeds._REGLE_CONDITIONNEL, 1).count(seeds._REGLE_CONDITIONNEL) == 1)
     verifier("le prompt par défaut impose un message court, aéré, sans jargon ni mot de vente, et n'est pas propre à un métier",
-             all(m in seeds.composer_prompt("Angle : x") for m in ("Entre 45 et 75 mots", "15 mots au maximum", "aucun terme technique", "Aucun mot de vente"))
+             all(m in seeds.composer_prompt("Angle : x") for m in ("Entre 45 et 70 mots", "15 mots au maximum", "aucun terme technique", "Aucun mot de vente"))
              and "patient" not in seeds._PROMPT_COMMUN.lower() and "Bonjour Maître" in seeds.composer_prompt("A", seeds.REGLE_SALUTATION_AVOCATS)
              and "{regle_salutation}" not in seeds.composer_prompt("A") and "{angle}" not in seeds.composer_prompt("A"))
 
@@ -467,14 +532,28 @@ def _autotests():
             verifier("signature absente de la réponse : ajoutée à la fin",
                      m["corps"].rstrip().endswith("Gill"))
             signature_test = "Gill, \nDéveloppeur Web & Mobile Freelance"
+            signature_nette = "Gill,\nDéveloppeur Web & Mobile Freelance"  # l'espace en fin de ligne des réglages est retiré
             verifier("signature recopiée par l'IA avec des variantes (virgule, espaces, majuscules, seulement le prénom) : jamais en double",
                      poser_signature("Bonjour,\n\nTexte.\n\nGill,\nDéveloppeur Web & Mobile Freelance", signature_test)
-                     == "Bonjour,\n\nTexte.\n\n" + signature_test
-                     and poser_signature("Bonjour,\n\nTexte.\n\nGill", signature_test) == "Bonjour,\n\nTexte.\n\n" + signature_test
+                     == "Bonjour,\n\nTexte.\n\n" + signature_nette
+                     and poser_signature("Bonjour,\n\nTexte.\n\nGill", signature_test) == "Bonjour,\n\nTexte.\n\n" + signature_nette
                      and poser_signature("Bonjour.\n\nGill,  \nDéveloppeur web & mobile freelance\n\n", signature_test)
-                     == "Bonjour.\n\n" + signature_test
-                     and poser_signature("Bonjour,\n\nTexte.", signature_test) == "Bonjour,\n\nTexte.\n\n" + signature_test
+                     == "Bonjour.\n\n" + signature_nette
+                     and poser_signature("Bonjour,\n\nTexte.", signature_test) == "Bonjour,\n\nTexte.\n\n" + signature_nette
                      and poser_signature("Texte", "") == "Texte")
+            verifier("salutation suivie de texte sur la même ligne : séparée, majuscule ; espace en début de ligne et trait d'union insécable retirés",
+                     _nettoyer_reponse("Bonjour, je m’appelle Gill.\n\n j’ai vu votre site peu‑lisible.")
+                     == "Bonjour,\n\nJe m’appelle Gill.\n\nj’ai vu votre site peu-lisible."
+                     and _nettoyer_reponse("Bonjour Maître, je vous écris.").startswith("Bonjour Maître,\n\nJe vous écris"))
+            mots = {"mots_interdits_message": '["visibilit", "concurren"]', "mots_max_message": "0"}
+            verifier("mots interdits : trouvés en début de mot (visibilité, concurrents), « oui ou non » refusé, texte propre accepté",
+                     len(verifier_message("Cela limite votre visibilité.", "", mots)) == 1
+                     and len(verifier_message("Vos concurrents ont un site.", "", mots)) == 1
+                     and len(verifier_message("Accepteriez-vous un exemple, oui ou non ?", "", mots)) == 1
+                     and verifier_message("Votre vitrine est belle. Puis-je vous montrer un exemple ?", "", mots) == [])
+            verifier("réputation : note et avis de la fiche Google en une ligne, « aucune information » sinon",
+                     reputation({"note_moyenne": 4.0, "nb_avis": 477}) == "note de 4,0 sur 5, 477 avis"
+                     and reputation({"note_moyenne": None, "nb_avis": 0}) == "aucune information sur ses avis")
             verifier("un « Gill » au milieu du message n'est pas pris pour une signature : conservé, la signature est ajoutée à la fin",
                      poser_signature("Gill m'a dit bonjour.\n\nTexte final.", "Gill") == "Gill m'a dit bonjour.\n\nTexte final.\n\nGill")
 

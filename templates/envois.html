@@ -56,9 +56,9 @@
 
 <section class="panneau" id="panneau-suivi" data-auto="{{ '1' if suivi_possible else '' }}">
   <h2>Suivi</h2>
-  <p class="aide">Les ouvertures sont lues chez Brevo. Un rebond définitif ou une désinscription entre aussitôt en liste noire, pour toutes les campagnes. Les réponses arrivent dans ta boîte mail : marque le prospect « répondu » dans l'historique ci-dessous.</p>
+  <p class="aide">Les ouvertures sont lues chez Brevo. Un rebond définitif ou une désinscription entre aussitôt en liste noire, pour toutes les campagnes. Les réponses sont lues dans ta boîte mail (lecture seule, rien n'y est modifié) quand elle est renseignée dans Réglages ; sinon marque le prospect « répondu » à la main dans l'historique ci-dessous. Un « STOP » en réponse met l'adresse en liste noire.</p>
   <div class="actions">
-    <button type="button" class="secondaire" id="btn-suivi" {% if not suivi_possible %}disabled{% endif %}>Actualiser le suivi</button>
+    <button type="button" class="secondaire" id="btn-suivi" {% if not suivi_possible %}disabled{% endif %}>Actualiser le suivi et les réponses</button>
     <span class="resultat" id="resultat-suivi" role="status">{% if derniere_sync %}dernière mise à jour : {{ derniere_sync }}{% elif not suivi_possible %}aucun envoi à suivre pour l'instant{% endif %}</span>
   </div>
 </section>
@@ -133,7 +133,12 @@
           {% endif %}
         </td>
         <td>{{ 'Oui' if l.statut in ['ouvert', 'repondu'] else '—' }}</td>
-        <td>{{ 'Oui' if l.statut == 'repondu' else '—' }}</td>
+        <td>
+          {% if l.reponse_type %}
+            <span class="chip chip-{{ {'reponse': 'repondu', 'stop': 'echec', 'automatique': 'ignore'}[l.reponse_type] }}">{{ {'reponse': 'Réponse', 'stop': 'Demande d\'arrêt', 'automatique': 'Réponse automatique'}[l.reponse_type] }}</span>
+            {% if l.reponse_extrait %}<br><span class="code" title="{{ l.reponse_extrait }}">« {{ l.reponse_extrait[:160] }}{{ '…' if l.reponse_extrait|length > 160 }} »</span>{% endif %}
+          {% else %}{{ 'Oui' if l.statut == 'repondu' else '—' }}{% endif %}
+        </td>
         <td>{% if l.statut in ['envoye', 'ouvert'] and l.statut_prospect == 'envoye' %}<button type="button" class="secondaire" data-repondu="{{ l.prospect_id }}">A répondu</button>{% endif %}</td>
       </tr>
     {% endfor %}

@@ -335,7 +335,7 @@ def chercher_osm(cfg, requete, regles, lat, lon, rayon_km, ville_zone, avertisse
 # Google Places (fournisseur principal, nécessite une clé)
 # --------------------------------------------------------------------------------------
 
-_CHAMPS_PLACES = ("places.id,places.displayName,places.formattedAddress,places.websiteUri,"
+_CHAMPS_PLACES = ("places.id,places.displayName,places.formattedAddress,places.websiteUri,places.googleMapsUri,"
                   "places.nationalPhoneNumber,places.rating,places.userRatingCount,places.location,nextPageToken")
 _PAGES_PLACES_MAX = 3  # l'API Places s'arrête à 60 résultats (3 pages de 20)
 
@@ -471,6 +471,7 @@ def chercher_google(cfg, requete, lat, lon, rayon_km, ville_zone, pays, langue):
                 "nom": nom, "adresse": lieu.get("formattedAddress") or None,
                 "ville": _ville_depuis_adresse(lieu.get("formattedAddress")) or ville_zone,
                 "telephone": lieu.get("nationalPhoneNumber") or None, "site": site or None, "email": None,
+                "maps_url": (lieu.get("googleMapsUri") or "").strip() or None,
                 "source": "google_places", "source_id": f"google:{identifiant}",
                 "note_moyenne": lieu.get("rating"), "nb_avis": lieu.get("userRatingCount", 0),
             })
@@ -641,10 +642,34 @@ def liens_contact(html, base, mots_cles, maximum):
     return trouves
 
 
-def trouver_contact(cfg, site, robots):
+_SEGMENTS_NON_PROFIL = {"sharer", "sharer.php", "share", "share.php", "plugins", "dialog", "tr", "login", "login.php", "policies",
+                        "privacy", "legal", "help", "p", "reel", "reels", "explore", "accounts", "stories", "tv", "about", "watch",
+                        "groups", "events", "hashtag", "intent", "pages", "people", "profile.php"}
+
+
+def extraire_profil_social(html, base, reseaux):
+    """Premier lien de la page vers un profil d'un réseau reconnu (Facebook, Instagram…), sinon None. Les liens de partage,
+    de connexion ou vers une publication n'en sont pas. Le lien est ramené à l'adresse du profil, sans paramètres."""
+    soupe = BeautifulSoup(html, "html.parser")
+    for lien in soupe.find_all("a", href=True):
+        morceaux = urlsplit(urljoin(base, lien["href"].strip()))
+        if morceaux.scheme not in ("http", "https") or not db.est_plateforme(
+                morceaux.netloc.lower().removeprefix("www."), [r.lower() for r in reseaux if r]):
+            continue
+        segments = [s for s in morceaux.path.split("/") if s]
+        if segments and segments[0].lower() not in _SEGMENTS_NON_PROFIL:
+            return f"{morceaux.scheme}://{morceaux.netloc}/{segments[0]}"
+        if len(segments) >= 2 and segments[0].lower() == "pages":  # ancienne forme : facebook.com/pages/Nom/123
+            return f"{morceaux.scheme}://{morceaux.netloc}/pages/{segments[1]}"
+    return None
+
+
+def trouver_contact(cfg, site, robots, collecte=None):
     """Cherche un moyen de contacter le prospect : un email d'abord (page d'accueil, puis pages de contact), à défaut
-    la page d'un formulaire de contact. Renvoie (email, formulaire_url, nb_pages) ; au plus l'un des deux."""
+    la page d'un formulaire de contact. Renvoie (email, formulaire_url, nb_pages) ; au plus l'un des deux.
+    Si `collecte` est un dict, le lien d'un profil Facebook/Instagram vu sur les pages visitées y est posé (clé « social »)."""
     domaine_site = db.extraire_domaine(site)
+    reseaux = json.loads(cfg.get("domaines_reseaux") or "[]")
     exclus = json.loads(cfg.get("emails_exclus") or "[]")
     generiques = json.loads(cfg.get("domaines_generiques") or "[]")
     hotes_formulaires = json.loads(cfg.get("domaines_formulaires") or "[]")
@@ -671,6 +696,8 @@ def trouver_contact(cfg, site, robots):
             decouverts = liens_contact(html, finale, json.loads(cfg.get("mots_cles_contact") or "[]"),
                                        int(cfg.get("contact_liens_max") or 0))
             urls += [u for u in decouverts + [urljoin(origine, chemin) for chemin in chemins] if u not in urls]
+        if collecte is not None and not collecte.get("social"):
+            collecte["social"] = extraire_profil_social(html, finale, reseaux)
         email = extraire_email(html, domaine_site, exclus, generiques)
         if email:
             return email, None, pages
@@ -702,15 +729,18 @@ def completer_contacts(job_id, campagne_id, ids=None, base=0.0, part=100.0):
     plateformes = json.loads(cfg.get("domaines_plateformes") or "[]")
     lignes = [l for l in lignes if not db.est_plateforme(db.extraire_domaine(l["site"]), plateformes)]
     robots = _Robots(cfg)
-    bilan = {"visites": len(lignes), "emails": 0, "formulaires": 0}
+    bilan = {"visites": len(lignes), "emails": 0, "formulaires": 0, "profils": 0}
     for k, l in enumerate(lignes):
         jobs.maj(job_id, base + part * k / max(len(lignes), 1), f"Recherche d'un contact {k + 1}/{len(lignes)}")
-        email, formulaire, _pages = trouver_contact(cfg, l["site"], robots)
+        collecte = {}
+        email, formulaire, _pages = trouver_contact(cfg, l["site"], robots, collecte)
         with db.connexion() as conn:
-            conn.execute("UPDATE prospects SET email = COALESCE(email, ?), formulaire_url = ?, contact_cherche_le = ? WHERE id = ?",
-                         (email, formulaire, _maintenant(), l["id"]))
+            conn.execute("UPDATE prospects SET email = COALESCE(email, ?), formulaire_url = ?, contact_cherche_le = ?, "
+                         "profil_social_url = COALESCE(profil_social_url, ?) WHERE id = ?",
+                         (email, formulaire, _maintenant(), collecte.get("social"), l["id"]))
         bilan["emails"] += bool(email)
         bilan["formulaires"] += bool(formulaire)
+        bilan["profils"] += bool(collecte.get("social"))
         if k + 1 < len(lignes):
             time.sleep(int(cfg["pause_pages_s"]))
     return bilan
@@ -784,7 +814,7 @@ def scanner(job_id, campagne_id, zone_ids=None):
         conn.execute("UPDATE campagnes SET statut = 'active' WHERE id = ? AND statut = 'brouillon'", (campagne_id,))
 
     robots = _Robots(cfg)
-    total = {"nouveaux": 0, "ignores": 0, "autres": 0, "emails": 0, "formulaires": 0, "sites": 0, "motifs": {}}
+    total = {"nouveaux": 0, "ignores": 0, "autres": 0, "emails": 0, "formulaires": 0, "profils": 0, "sites": 0, "motifs": {}}
     echecs, sautees, secours, avertissements = [], [], [], []
     non_scannees = 0
     contexte = {"fournisseur": code, "pays": campagne["pays"], "langue": campagne["langue"],
@@ -932,12 +962,15 @@ def _scanner_zone(job_id, cfg, regles, requetes, campagne_id, zone, etiquette, b
         jobs.maj(job_id, base + part * (0.3 + 0.7 * k / len(sans_email)),
                  f"{etiquette} — {nouveaux} nouveau(x), recherche d'emails {k + 1}/{len(sans_email)}")
         total["sites"] += 1
-        email, formulaire, _pages = trouver_contact(cfg, site, robots)
+        collecte = {}
+        email, formulaire, _pages = trouver_contact(cfg, site, robots, collecte)
         with db.connexion() as conn:
-            conn.execute("UPDATE prospects SET email = ?, formulaire_url = ?, contact_cherche_le = ? WHERE id = ?",
-                         (email, formulaire, _maintenant(), prospect_id))
+            conn.execute("UPDATE prospects SET email = ?, formulaire_url = ?, contact_cherche_le = ?, "
+                         "profil_social_url = COALESCE(profil_social_url, ?) WHERE id = ?",
+                         (email, formulaire, _maintenant(), collecte.get("social"), prospect_id))
         total["emails"] += bool(email)
         total["formulaires"] += bool(formulaire)
+        total["profils"] += bool(collecte.get("social"))
         if k + 1 < len(sans_email):
             time.sleep(int(cfg["pause_pages_s"]))
     jobs.maj(job_id, base + part, f"{etiquette} — terminée, {nouveaux} nouveau(x)")
@@ -1088,7 +1121,16 @@ def _autotests():
     verifier("liens de contact : la limite des réglages est respectée, 0 = aucun",
              len(liens_contact(accueil_liens, "https://www.x.fr/", ["contact"], 1)) == 1
              and liens_contact(accueil_liens, "https://www.x.fr/", ["contact"], 0) == [])
-    site_pages = {"https://x.fr": "<html>Accueil</html>", "https://x.fr/contact": formulaire,
+    verifier("profil social : lien Facebook/Instagram d'un profil retenu (sans paramètres) ; partage, publication, connexion et autres sites écartés",
+             extraire_profil_social("<a href='https://www.facebook.com/sharer/sharer.php?u=x'>p</a><a href='https://twitter.com/x'>t</a>"
+                                    "<a href='https://www.instagram.com/p/AbC/'>post</a><a href='https://www.facebook.com/boulangerie.x?ref=1'>fb</a>",
+                                    "https://x.fr", ["facebook.com", "instagram.com"]) == "https://www.facebook.com/boulangerie.x"
+             and extraire_profil_social("<a href='/insta'>i</a><a href='https://instagram.com/chez_lea/'>i</a>", "https://x.fr",
+                                        ["facebook.com", "instagram.com"]) == "https://instagram.com/chez_lea"
+             and extraire_profil_social("<a href='https://www.facebook.com/'>fb</a><a href='https://www.facebook.com/pages/Chez-Lea/123'>fb</a>",
+                                        "https://x.fr", ["facebook.com"]) == "https://www.facebook.com/pages/Chez-Lea"
+             and extraire_profil_social("<a href='https://www.facebook.com/x'>fb</a>", "https://x.fr", []) is None)
+    site_pages = {"https://x.fr": "<html><a href='https://fr-fr.facebook.com/boulangerie.x/?ref=ts'>Facebook</a></html>", "https://x.fr/contact": formulaire,
                   "https://z.fr": "<html><a href='/infos-pratiques-contact/'>Infos pratiques</a></html>",
                   "https://z.fr/infos-pratiques-contact/": formulaire,
                   "https://y.fr": "<html><a href='mailto:contact@y.fr'>écrire</a>" + formulaire + "</html>"}
@@ -1139,7 +1181,10 @@ def _autotests():
                 with db.connexion() as c:
                     lignes = {r["nom"]: dict(r) for r in c.execute("SELECT * FROM prospects WHERE campagne_id = ?", (camp,))}
                 verifier("rattrapage : seuls les prospects avec un site propre jamais exploré, sans email, non ignorés sont visités",
-                         bilan == {"visites": 2, "emails": 1, "formulaires": 1})
+                         bilan == {"visites": 2, "emails": 1, "formulaires": 1, "profils": 1})
+                verifier("rattrapage : le profil Facebook vu sur le site est enregistré, sans paramètres",
+                         lignes["Avec formulaire"]["profil_social_url"] == "https://fr-fr.facebook.com/boulangerie.x"
+                         and lignes["Avec email"]["profil_social_url"] is None)
                 verifier("rattrapage : formulaire et email enregistrés, date d'exploration posée, les autres intacts",
                          lignes["Avec formulaire"]["formulaire_url"] == "https://x.fr/contact" and lignes["Avec formulaire"]["email"] is None
                          and lignes["Avec email"]["email"] == "contact@y.fr" and lignes["Avec email"]["formulaire_url"] is None

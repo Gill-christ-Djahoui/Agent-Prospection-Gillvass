@@ -46,26 +46,51 @@ def _est_signature(paragraphe):
     return 0 < len(lignes) <= 4 and all(len(l) <= 60 and l[-1] not in ".?!:;" for l in lignes)
 
 
+def _est_salutation(paragraphe):
+    """« Bonjour Maître, » : une seule courte ligne qui se termine par une virgule."""
+    ligne = paragraphe.strip()
+    return "\n" not in ligne and ligne.endswith(",") and len(ligne.split()) <= 5
+
+
 def rendre_html(cfg, corps, site, mention):
     """HTML complet de l'email. `corps`, `site` et `mention` sont EXACTEMENT les textes de la version texte.
 
-    L'allure est celle d'un message écrit à la main : paragraphes aérés, signature en simples lignes, ton site en lien
-    ordinaire dessous. Aucune décoration (un email « dessiné » est classé dans Promotions par Gmail). Cela ne touche à
-    aucun mot.
+    Deux styles (réglage `email_style`), sans image, sans bouton, sans lien ajouté, et qui ne touchent à aucun mot :
+    - « sobre » : l'allure d'un message écrit à la main (aucun fond, cadre ni couleur) ;
+    - « elegant » : une carte soignée, avec un trait de couleur en tête, une salutation mise en valeur, une signature
+      présentée en bloc (nom en gras, titre en gris, filet de couleur) et un pied de page discret.
     """
     couleur = cfg.get("email_couleur_accent") or _COULEUR_DEFAUT
     if not _RE_COULEUR.match(couleur):
-        couleur = _COULEUR_DEFAUT  # n'intervient que dans un modèle personnalisé qui utilise {couleur}
+        couleur = _COULEUR_DEFAUT
+    elegant = cfg.get("email_style") == "elegant" and bool(cfg.get("modele_email_elegant"))
     paragraphes = [b for b in re.split(r"\n\s*\n", corps.strip()) if b.strip()]
     signature = paragraphes.pop() if len(paragraphes) >= 2 and _est_signature(paragraphes[-1]) else None
-    blocs = ['<p style="margin:0 0 18px 0;">' + "<br>".join(html.escape(l.rstrip()) for l in p.split("\n")) + "</p>"
-             for p in paragraphes]
+
+    def en_html(texte):
+        return "<br>".join(html.escape(l.rstrip()) for l in texte.split("\n"))
+
+    blocs = []
+    for i, p in enumerate(paragraphes):
+        if elegant and i == 0 and _est_salutation(p):
+            blocs.append(f'<p style="margin:0 0 22px 0;font-size:19px;line-height:1.4;font-weight:600;color:#111827;">{en_html(p)}</p>')
+        else:
+            blocs.append(f'<p style="margin:0 0 18px 0;">{en_html(p)}</p>')
     lien = ""
     if site:
         adresse = _adresse_web(site)
         affiche = html.escape(site.strip())
-        lien = f'<a href="{html.escape(adresse, quote=True)}">{affiche}</a>' if adresse else affiche
-    if signature:
+        style_lien = f' style="color:{couleur};text-decoration:none;font-weight:600;"' if elegant else ""
+        lien = f'<a href="{html.escape(adresse, quote=True)}"{style_lien}>{affiche}</a>' if adresse else affiche
+    if signature and elegant:
+        lignes = [html.escape(l.strip()) for l in signature.split("\n") if l.strip()]
+        details = "".join(f'<div style="font-size:14px;line-height:1.55;color:#6b7280;">{l}</div>' for l in lignes[1:])
+        if lien:
+            details += f'<div style="font-size:14px;line-height:1.55;margin-top:3px;">{lien}</div>'
+        blocs.append('<table role="presentation" cellpadding="0" cellspacing="0" style="margin:30px 0 0 0;"><tr>'
+                     f'<td style="border-left:3px solid {couleur};padding:2px 0 2px 14px;">'
+                     f'<div style="font-size:16px;line-height:1.5;font-weight:700;color:#111827;">{lignes[0]}</div>{details}</td></tr></table>')
+    elif signature:
         lignes = [html.escape(l.strip()) for l in signature.split("\n") if l.strip()]
         if lien:
             lignes.append(lien)
@@ -73,8 +98,8 @@ def rendre_html(cfg, corps, site, mention):
     elif lien:
         blocs.append(f'<p style="margin:0 0 18px 0;">{lien}</p>')
     mention_html = "<br>".join(html.escape(l.strip()) for l in mention.strip().split("\n"))
-    return _remplacer(cfg["modele_email_html"],
-                      {"contenu": "\n".join(blocs), "mention": mention_html, "couleur": couleur})
+    modele = cfg["modele_email_elegant"] if elegant else cfg["modele_email_html"]
+    return _remplacer(modele, {"contenu": "\n".join(blocs), "mention": mention_html, "couleur": couleur})
 
 
 def texte_du_html(contenu_html):
@@ -153,6 +178,24 @@ def _autotests():
              and "color:#112233" in rendre_html({**cfg_perso, "email_couleur_accent": "#112233"}, corps, "", mention))
     verifier("le HTML ne contient ni image, ni script, ni pixel de suivi",
              all(b not in page for b in ("<img", "<script", "<iframe", "onload=")))
+    # --- Style « élégant » ---
+    cfg_el = {**cfg, "email_style": "elegant", "modele_email_elegant": seeds._MODELE_EMAIL_ELEGANT}
+    page_el = rendre_html(cfg_el, corps, "https://gdjahoui.com", mention)
+    verifier("style élégant : le texte visible est EXACTEMENT celui de la version texte (aucun mot ajouté ni retiré)",
+             texte_du_html(page_el) == texte_envoye)
+    verifier("style élégant : trait de couleur en tête, salutation mise en valeur, signature en bloc (nom en gras, titre en gris, filet de couleur), lien coloré",
+             "background:#112233" in page_el and 'font-weight:600;color:#111827;">Bonjour,</p>' in page_el
+             and "border-left:3px solid #112233" in page_el and 'font-weight:700;color:#111827;">Gill</div>' in page_el
+             and 'color:#6b7280;">Développeur web</div>' in page_el and 'href="https://gdjahoui.com" style="color:#112233' in page_el)
+    verifier("style élégant : le texte du message reste échappé, sans image, script ni lien ajouté",
+             "&lt;b&gt;sur mobile&lt;/b&gt;" in page_el and page_el.count("<a ") == 1
+             and all(b not in page_el for b in ("<img", "<script", "<iframe", "onload=")))
+    verifier("style élégant : une phrase en dernier paragraphe n'est pas prise pour une signature ; sans modèle élégant, retour au style sobre",
+             "border-left" not in rendre_html(cfg_el, "Bonjour,\n\nVotre site est lent. Pouvons-nous en parler ?", "", mention)
+             and "background:#eef1f6" not in rendre_html({**cfg_el, "modele_email_elegant": ""}, corps, "", mention))
+    verifier("style sobre inchangé quand « sobre » est choisi", rendre_html({**cfg_el, "email_style": "sobre"}, corps, "https://gdjahoui.com", mention) == page)
+    verifier("réglages de départ : style élégant par défaut, avec son modèle installé",
+             reglages.get("email_style") == "elegant" and reglages.get("modele_email_elegant") == seeds._MODELE_EMAIL_ELEGANT)
     # Migration : un modèle resté identique à une ancienne version par défaut est mis à jour, un modèle personnalisé jamais
     import tempfile
     from pathlib import Path

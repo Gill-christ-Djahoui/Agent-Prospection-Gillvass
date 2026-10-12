@@ -80,11 +80,11 @@ document.addEventListener("DOMContentLoaded", () => {
   async function synchroniser(silencieux) {
     boutonSuivi.disabled = true;
     sortieSuivi.className = "resultat";
-    sortieSuivi.textContent = "Interrogation de Brevo…";
+    sortieSuivi.textContent = "Interrogation de Brevo et de ta boîte mail…";
     try {
       const r = await api("/api/envois/synchroniser", { method: "POST", silencieux: true, body: "{}" });
       afficherResultat(sortieSuivi, "ok", r.message);
-      if (r.ouvertures || r.rebonds || r.desinscriptions) window.setTimeout(() => window.location.reload(), 1500);
+      if (r.ouvertures || r.rebonds || r.desinscriptions || r.reponses || r.stops || r.automatiques) window.setTimeout(() => window.location.reload(), 1500);
     } catch (e) {
       afficherResultat(sortieSuivi, "erreur", e.message);
     } finally {

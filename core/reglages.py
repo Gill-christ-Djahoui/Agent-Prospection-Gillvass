@@ -27,6 +27,12 @@ SPECS = {
     "ai_model": {"type": "texte"},
     "ai_key": {"type": "secret"},
     "brevo_key": {"type": "secret"},
+    "imap_serveur": {"type": "texte"},
+    "imap_port": {"type": "entier", "min": 1, "max": 65535},
+    "imap_utilisateur": {"type": "texte"},
+    "imap_mot_de_passe": {"type": "secret"},
+    "imap_dossier": {"type": "texte"},
+    "canal_appels": {"type": "choix", "choix": ("oui", "non")},
     # Identité d'expédition
     "expediteur_nom": {"type": "texte"},
     "expediteur_email": {"type": "email"},
@@ -37,6 +43,9 @@ SPECS = {
     "mention_desinscription": {"type": "texte", "requis": True},
     "email_format": {"type": "choix", "choix": ("html", "texte")},
     "email_couleur_accent": {"type": "couleur"},
+    "email_style": {"type": "choix", "choix": ("elegant", "sobre")},
+    "modele_email_elegant": {"type": "texte", "requis": True, "variables": ("contenu", "mention", "couleur"),
+                             "obligatoires": ("contenu",)},
     "modele_email_html": {"type": "texte", "requis": True, "variables": ("contenu", "mention", "couleur"),
                           "obligatoires": ("contenu",)},
     "prompt_relance": {"type": "texte", "requis": True, "variables": (
@@ -74,7 +83,11 @@ SPECS = {
     "prompt_appel": {"type": "texte", "requis": True, "variables": (
         "expediteur", "nom", "ville", "secteur", "site", "problemes", "score", "angle")},
     "prompt_formulaire": {"type": "texte", "requis": True, "variables": (
-        "expediteur", "nom", "ville", "secteur", "site", "problemes", "score", "angle", "signature")},
+        "expediteur", "nom", "ville", "secteur", "site", "problemes", "score", "angle", "signature", "reputation")},
+    "mots_interdits_message": {"type": "liste"},
+    "prompt_social": {"type": "texte", "requis": True, "variables": (
+        "expediteur", "nom", "ville", "secteur", "site", "problemes", "score", "angle", "signature", "reputation")},
+    "domaines_reseaux": {"type": "liste", "domaines": True},
     "domaines_formulaires": {"type": "liste"},
     "mots_cles_contact": {"type": "liste"},
     "contact_liens_max": {"type": "entier", "min": 0, "max": 10},

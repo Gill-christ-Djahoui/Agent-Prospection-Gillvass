@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block titre %}Messages privés{% endblock %}
+{% block titre_page %}Messages privés{% endblock %}
+{% block sous_titre %}<p class="sous-titre-page">Les commerces sans email : leur profil Facebook ou Instagram, ou à défaut leur fiche Google Maps et une recherche toute prête. L'application te prépare le message ; tu l'envoies toi-même depuis ton compte, depuis n'importe quel pays.</p>{% endblock %}
+
+{% block contenu %}
+<div class="filtres" id="social-filtres">
+  <label>Campagne
+    <select id="f-campagne">
+      <option value="">Toutes</option>
+      {% for c in campagnes %}<option value="{{ c.id }}">{{ c.nom }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>État
+    <select id="f-etat">
+      {% for code, libelle in etats.items() %}<option value="{{ code }}">{{ libelle }}</option>{% endfor %}
+      <option value="tous">Tous</option>
+    </select>
+  </label>
+</div>
+
+<p class="compteurs-appels" id="social-compteurs" role="status"></p>
+
+<table class="tableau tableau-appels" id="social-tableau">
+  <thead>
+    <tr><th class="num">Score</th><th>Commerce</th><th>Comment le contacter</th><th>Problème repéré</th><th>Dernier contact</th><th></th></tr>
+  </thead>
+  <tbody id="social-corps"></tbody>
+</table>
+<p class="aide" id="social-limite" hidden></p>
+<p class="aide">Le profil est repéré quand Google indique une page Facebook ou Instagram comme « site », ou quand le site du commerce y renvoie. Sinon, ouvre la fiche Google Maps ou la recherche, trouve le profil, colle son adresse dans la fiche : elle est gardée pour la suite.</p>
+
+<dialog id="fiche-social" class="fenetre fenetre-large" data-ia="{{ '1' if ia_prete else '' }}">
+  <div class="fenetre-contenu">
+    <div class="fiche-tete">
+      <h2 id="fs-nom"></h2>
+      <p class="aide" id="fs-meta"></p>
+    </div>
+    <p class="actions" id="fs-liens"></p>
+    <ul class="puces" id="fs-problemes"></ul>
+
+    <div class="champ champ-large">
+      <label for="fs-profil">Adresse de son profil (Facebook, Instagram…)</label>
+      <input id="fs-profil" type="text" maxlength="500" autocomplete="off" placeholder="https://www.facebook.com/nom-du-commerce">
+      <p class="erreur-champ" data-erreur-pour="profil" hidden></p>
+      <div class="actions">
+        <button type="button" class="secondaire" id="fs-enregistrer-profil">Enregistrer l'adresse</button>
+        <span class="resultat" id="fs-etat-profil" role="status"></span>
+      </div>
+    </div>
+
+    <div class="champ champ-large">
+      <label for="fs-message">Message à envoyer en message privé</label>
+      <textarea id="fs-message" rows="9" placeholder="Pas encore de message : « Écrire avec l'IA » le prépare à partir du vrai problème constaté."></textarea>
+      <div class="actions">
+        <button type="button" class="bouton" id="fs-copier">Copier le message</button>
+        <button type="button" class="secondaire" id="fs-generer">Écrire avec l'IA</button>
+        <button type="button" class="secondaire" id="fs-enregistrer">Enregistrer mes corrections</button>
+        <span class="resultat" id="fs-etat-message" role="status"></span>
+      </div>
+      {% if not ia_prete %}<p class="aide">L'IA n'est pas encore configurée (Réglages) : tu peux écrire le message à la main.</p>{% endif %}
+      <p class="aide">Relis le message avant de l'envoyer, depuis ton propre compte. Un commerçant qui ne répond pas ne se relance pas dans la foulée : attends quelques jours.</p>
+    </div>
+
+    <h3 class="sous-titre">Qu'est-ce qui s'est passé ?</h3>
+    <div class="resultats-appel" id="fs-resultats" role="group" aria-label="Résultat">
+      {% for code, libelle in resultats.items() %}
+        <button type="button" class="secondaire resultat-appel{% if code == 'pas_interesse' %} danger{% endif %}" data-resultat="{{ code }}">{{ libelle }}</button>
+      {% endfor %}
+    </div>
+    <div class="champ" id="fs-champ-note" hidden>
+      <label for="fs-note">Note (facultatif)</label>
+      <input id="fs-note" type="text" maxlength="1000" autocomplete="off" placeholder="Ex. : envoyé sur Instagram le 13/10">
+      <p class="erreur-champ" data-erreur-pour="note" hidden></p>
+    </div>
+    <p class="aide" id="fs-avertissement" hidden></p>
+    <div class="actions">
+      <button type="button" class="bouton" id="fs-valider" disabled>Enregistrer et passer au suivant</button>
+      <button type="button" class="secondaire" id="fs-fermer">Fermer</button>
+      <span class="resultat" id="fs-etat-resultat" role="status"></span>
+    </div>
+
+    <h3 class="sous-titre">Historique</h3>
+    <ul class="journal-appels" id="fs-historique"></ul>
+  </div>
+</dialog>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='social.js') }}"></script>{% endblock %}

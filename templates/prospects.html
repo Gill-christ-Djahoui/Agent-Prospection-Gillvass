@@ -87,11 +87,14 @@
       {% endfor %}
     </select>
   </label>
-  <label>Email
+  <label>Moyen de contact
     <select id="f-email">
       <option value="">Tous</option>
-      <option value="avec">Avec email</option>
-      <option value="sans">Sans email (à appeler)</option>
+      <option value="ecrit">Joignables (email, formulaire ou profil)</option>
+      <option value="email">Avec email</option>
+      <option value="formulaire">Formulaire de contact seulement</option>
+      <option value="profil">Profil Facebook / Instagram seulement</option>
+      <option value="aucun">Aucun moyen direct (recherche à la main)</option>
     </select>
   </label>
   <label>Adresse générique
@@ -131,14 +134,14 @@
   <tbody>
     {% for p in prospects %}
       <tr data-campagne="{{ p.campagne_id }}" data-ville="{{ (p.ville or '')|lower }}" data-statut="{{ p.statut }}"
-          data-email="{{ 'avec' if p.email else 'sans' }}" data-generique="{{ 'oui' if p.generique else 'non' }}"
+          data-email="{{ 'avec' if p.email else 'sans' }}" data-contact="{{ 'email' if p.email else ('formulaire' if p.formulaire_url else ('profil' if p.profil_social_url else 'aucun')) }}" data-generique="{{ 'oui' if p.generique else 'non' }}"
           data-nom="{{ p.nom|lower }}" data-score="{{ p.score }}" data-envoi="{{ p.date_envoi or '' }}"
           data-id="{{ p.id }}" data-recherche="{{ (p.nom ~ ' ' ~ (p.ville or '') ~ ' ' ~ (p.site_domaine or '') ~ ' ' ~ (p.email or ''))|lower }}">
         <td class="col-coche"><input type="checkbox" class="coche" aria-label="Sélectionner {{ p.nom }}"></td>
         <td>{{ p.nom }}{% if p.notes %} <span class="badge" title="{{ p.notes }}">note</span>{% endif %}{% if not p.email and p.telephone %}<br><span class="code">Tél. {{ p.telephone }}</span>{% endif %}</td>
         <td>{{ p.ville or '—' }}</td>
         <td>{% if p.site %}<a href="{{ p.site }}" target="_blank" rel="noopener noreferrer">{{ p.site_domaine or p.site }}</a>{% else %}<span class="code">aucun site</span>{% endif %}</td>
-        <td>{% if p.email %}{{ p.email }}{% if p.generique %} <span class="badge" title="Adresse chez un fournisseur grand public : à toi de décider">générique</span>{% endif %}{% else %}<span class="code">introuvable</span>{% endif %}</td>
+        <td>{% if p.email %}{{ p.email }}{% if p.generique %} <span class="badge" title="Adresse chez un fournisseur grand public : à toi de décider">générique</span>{% endif %}{% elif p.formulaire_url %}<a href="{{ p.formulaire_url }}" target="_blank" rel="noopener noreferrer" title="Pas d'email, mais un formulaire de contact : écran Formulaires">formulaire de contact ↗</a>{% elif p.profil_social_url %}<a href="{{ p.profil_social_url }}" target="_blank" rel="noopener noreferrer" title="Pas d'email, mais un profil : écran Messages privés">profil Facebook / Instagram ↗</a>{% else %}<span class="code" title="Ni email, ni formulaire, ni profil trouvés : écran Messages privés (recherche du profil à la main)">aucun moyen direct</span>{% endif %}</td>
         <td>{% if p.statut == 'nouveau' %}<span class="code">pas encore analysé</span>{% elif p.problemes_libelles %}{{ p.problemes_libelles|join(' · ') }}{% else %}—{% endif %}</td>
         <td class="num score" title="Score brut : {{ p.score }}">{% if p.statut == 'nouveau' %}—{% else %}{{ [p.score, plafond]|min }}{% endif %}</td>
         <td><span class="chip chip-{{ p.statut }}">{{ statut_libelle(p.statut) }}</span></td>

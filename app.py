@@ -19,8 +19,10 @@ from core import messages as messages_mod
 from core import sender as sender_mod
 from core import suivi
 from core import niche
+from core import boite
 from core import appels as appels_mod
 from core import formulaires as formulaires_mod
+from core import social as social_mod
 from core import campagnes as campagnes_mod
 from core import db, jobs, sender, sourcing, writer
 from core import reglages as reglages_mod
@@ -34,6 +36,7 @@ NAVIGATION = [
     ("campagnes", "Campagnes", "campagnes"),
     ("prospects", "Prospects", "prospects"),
     ("formulaires", "Formulaires", "formulaires"),
+    ("messages_prives", "Messages privés", "social"),
     ("appels", "Appels", "appels"),
     ("messages", "Messages", "messages"),
     ("envois", "Envois", "envois"),
@@ -97,7 +100,8 @@ def create_app():
             cfg_rail = reglages_mod.valeurs_effectives(conn)
             quota_du_jour = sender_mod.quota(conn, cfg_rail)
             rappels = appels_mod.compteurs_rail(conn, cfg_rail)
-        return {"navigation": NAVIGATION, "section_active": section, "quota_rail": quota_du_jour,
+        navigation = [n for n in NAVIGATION if n[0] != "appels" or cfg_rail.get("canal_appels") == "oui"]  # pas de numéro : pas d'Appels
+        return {"navigation": navigation, "section_active": section, "quota_rail": quota_du_jour,
                 "identifiant_connecte": session.get("identifiant", ""),
                 "plafond_score": scorer.PLAFOND_AFFICHAGE,
                 "mode_essai": bool(json.loads(cfg_rail.get("envoi_adresses_autorisees") or "[]")),
@@ -446,7 +450,7 @@ def create_app():
     def prospects():
         with db.connexion() as conn:
             lignes = [dict(l) for l in conn.execute(
-                """SELECT p.id, p.nom, p.ville, p.telephone, p.site, p.site_domaine, p.email, p.problemes, p.notes,
+                """SELECT p.id, p.nom, p.ville, p.telephone, p.site, p.site_domaine, p.email, p.formulaire_url, p.profil_social_url, p.problemes, p.notes,
                           p.score, p.statut, p.source, p.campagne_id, c.nom AS campagne_nom,
                           est_generique(p.email) AS generique,
                           (SELECT MAX(e.envoye_le) FROM envois e JOIN messages m ON m.id = e.message_id
@@ -512,6 +516,50 @@ def create_app():
         d = request.get_json(silent=True) or {}
         with db.connexion() as conn:
             return jsonify(formulaires_mod.noter(conn, prospect_id, d.get("resultat"), d.get("note")))
+
+    # --- Messages privés (Facebook, Instagram…) : liste, lien du profil, message prêt à coller, résultat ---
+
+    @app.get("/messages-prives")
+    def messages_prives():
+        with db.connexion() as conn:
+            cfg = reglages_mod.valeurs_effectives(conn)
+            liste = [dict(l) for l in conn.execute(
+                "SELECT id, nom FROM campagnes WHERE est_modele = 0 AND statut <> 'archivee' ORDER BY nom")]
+        return render_template("social.html", campagnes=liste, etats=social_mod.ETATS,
+                               resultats=social_mod.RESULTATS, ia_prete=not writer.configuration_manquante(cfg))
+
+    @app.get("/api/social/file")
+    def api_social_file():
+        with db.connexion() as conn:
+            return jsonify(social_mod.file(conn, request.args.get("campagne") or None, request.args.get("etat", "faire")))
+
+    @app.get("/api/social/<int:prospect_id>")
+    def api_social_fiche(prospect_id):
+        with db.connexion() as conn:
+            return jsonify(social_mod.fiche(conn, prospect_id))
+
+    @app.post("/api/social/<int:prospect_id>/profil")
+    def api_social_profil(prospect_id):
+        with db.connexion() as conn:
+            return jsonify(social_mod.enregistrer_profil(conn, prospect_id, (request.get_json(silent=True) or {}).get("profil")))
+
+    @app.post("/api/social/<int:prospect_id>/message")
+    def api_social_message(prospect_id):
+        with db.connexion() as conn:
+            cfg = reglages_mod.valeurs_effectives(conn)
+        return jsonify(message=social_mod.generer_message(cfg, prospect_id))
+
+    @app.post("/api/social/<int:prospect_id>/message/enregistrer")
+    def api_social_message_enregistrer(prospect_id):
+        with db.connexion() as conn:
+            social_mod.enregistrer_message(conn, prospect_id, (request.get_json(silent=True) or {}).get("message"))
+        return jsonify(ok=True)
+
+    @app.post("/api/social/<int:prospect_id>/resultat")
+    def api_social_resultat(prospect_id):
+        d = request.get_json(silent=True) or {}
+        with db.connexion() as conn:
+            return jsonify(social_mod.noter(conn, prospect_id, d.get("resultat"), d.get("note")))
 
     @app.post("/api/campagnes/<int:campagne_id>/contacts")
     def api_contacts_chercher(campagne_id):
@@ -636,9 +684,12 @@ def create_app():
             autorisees = json.loads(cfg.get("envoi_adresses_autorisees") or "[]")
             historique = [dict(l) for l in conn.execute(
                 """SELECT e.id, e.envoye_le, e.statut, e.erreur, e.brevo_id, p.id AS prospect_id, p.nom, p.email, p.statut AS statut_prospect,
-                          c.id AS campagne_id, c.nom AS campagne_nom
+                          c.id AS campagne_id, c.nom AS campagne_nom,
+                          r.type AS reponse_type, r.extrait AS reponse_extrait, r.recu_le AS reponse_le
                      FROM envois e JOIN messages m ON m.id = e.message_id JOIN prospects p ON p.id = m.prospect_id
-                     JOIN campagnes c ON c.id = p.campagne_id ORDER BY e.id DESC LIMIT 1000""")]
+                     JOIN campagnes c ON c.id = p.campagne_id
+                     LEFT JOIN reponses r ON r.id = (SELECT MAX(id) FROM reponses WHERE prospect_id = p.id)
+                    ORDER BY e.id DESC LIMIT 1000""")]
             campagnes_liste = [dict(l) for l in conn.execute(
                 "SELECT id, nom FROM campagnes WHERE id IN (SELECT campagne_id FROM prospects WHERE id IN "
                 "(SELECT prospect_id FROM messages WHERE id IN (SELECT message_id FROM envois))) ORDER BY nom")]
@@ -695,9 +746,20 @@ def create_app():
         with db.connexion() as conn:
             cfg = reglages_mod.valeurs_effectives(conn)
         try:
-            return jsonify(suivi.synchroniser_brevo(cfg))
+            compte = suivi.synchroniser_brevo(cfg)
         except suivi.ErreurSuivi as erreur:
             return jsonify(erreur=str(erreur)), 400
+        compte.update(reponses=0, stops=0, automatiques=0)
+        if boite._configuree(cfg):  # les réponses sont lues dans ta boîte mail (lecture seule)
+            try:
+                lues = boite.synchroniser_reponses(cfg)
+                compte.update(reponses=lues["reponses"], stops=lues["stops"], automatiques=lues["automatiques"])
+                compte["message"] += " " + lues["message"]
+            except boite.ErreurBoite as erreur:
+                compte["message"] += " Boîte mail : " + str(erreur)
+        else:
+            compte["message"] += " Pour voir les réponses ici, renseigne ta boîte mail dans Réglages (Clés et services)."
+        return jsonify(compte)
 
     @app.post("/api/prospects/<int:prospect_id>/repondu")
     def api_prospect_repondu(prospect_id):
@@ -857,7 +919,7 @@ def create_app():
     @app.post("/api/reglages/tester/<service>")
     def api_reglages_tester(service):
         testeurs = {"google": sourcing.tester_connexion, "ia": writer.tester_connexion,
-                    "brevo": sender.tester_connexion}
+                    "brevo": sender.tester_connexion, "boite": boite.tester_connexion}
         if service not in testeurs:
             return jsonify(erreur=f"Service inconnu : {service}"), 404
         donnees = request.get_json(silent=True) or {}

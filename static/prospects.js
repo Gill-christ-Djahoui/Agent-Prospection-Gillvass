@@ -26,7 +26,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const ok = (!filtres.campagne.value || d.campagne === filtres.campagne.value)
         && (!filtres.ville.value || d.ville === filtres.ville.value)
         && (!filtres.statut.value || d.statut === filtres.statut.value)
-        && (!filtres.email.value || d.email === filtres.email.value)
+        && (!filtres.email.value || (filtres.email.value === "ecrit" ? d.contact !== "aucun" : d.contact === filtres.email.value))
         && (!filtres.generique.value || d.generique === filtres.generique.value)
         && (!texte || d.recherche.includes(texte));
       ligne.hidden = !ok;

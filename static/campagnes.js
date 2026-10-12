@@ -304,9 +304,10 @@ function initialiserInfos(id) {
   }
 
   function ajouter() {
-    const valeur = champ.value.trim().replace(/\s+/g, " ");
-    if (!valeur) return;
-    if (!requetes.some((r) => r.toLowerCase() === valeur.toLowerCase())) requetes.push(valeur);
+    // une virgule ou un point-virgule sépare deux recherches : « avocat, cabinet d'avocats » en fait deux
+    champ.value.split(/[,;]/).map((v) => v.trim().replace(/\s+/g, " ")).filter(Boolean).forEach((valeur) => {
+      if (!requetes.some((r) => r.toLowerCase() === valeur.toLowerCase())) requetes.push(valeur);
+    });
     champ.value = "";
     dessiner();
   }

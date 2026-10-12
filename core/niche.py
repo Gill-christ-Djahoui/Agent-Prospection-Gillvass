@@ -219,7 +219,10 @@ def creer(cfg, proposition, geocoder=None):
             "INSERT INTO modeles_message (nom, objet_template, prompt_systeme, signature) VALUES (?, ?, ?, '')",
             (f"Angle {secteur}"[:120], objet, seeds.composer_prompt(angle, SALUTATIONS[titre]))).lastrowid
         campagne_id = campagnes.creer(conn, {"nom": nom, "secteur": secteur, "pays": pays or "FR", "langue": langue or "fr"})
+        copie_par_defaut = conn.execute("SELECT modele_message_id FROM campagnes WHERE id = ?", (campagne_id,)).fetchone()[0]
         campagnes.modifier(conn, campagne_id, {"requetes": requetes, "modele_message_id": modele})
+        if copie_par_defaut:  # l'angle par défaut donné à toute campagne neuve est remplacé par celui qui vient d'être relu
+            conn.execute("DELETE FROM modeles_message WHERE id = ?", (copie_par_defaut,))
         for z_nom, rayon, lat, lon in retenues:
             campagnes.ajouter_zone(conn, campagne_id, z_nom, pays or "FR", rayon,
                                    lambda ville, p, lat=lat, lon=lon: {"statut": "ok", "lat": lat, "lon": lon})
@@ -348,7 +351,7 @@ def _autotests():
                      fiche["campagne"]["statut"] == "brouillon" and fiche["campagne"]["secteur"] == "cabinet de kinésithérapie"
                      and fiche["campagne"]["requetes"] == ["kinésithérapeute", "cabinet de kinésithérapie"] and fiche["campagne"]["pays"] == "FR")
             verifier("angle : règles communes (court, aéré, sans jargon) + angle de la niche + règle de salutation « Docteur », aucune variable orpheline",
-                     "Entre 45 et 75 mots" in prompt_campagne and "Angle : les patients cherchent un kiné" in prompt_campagne
+                     "Entre 45 et 70 mots" in prompt_campagne and "Angle : les patients cherchent un kiné" in prompt_campagne
                      and "Bonjour Docteur" in prompt_campagne and "{angle}" not in prompt_campagne and "{regle_salutation}" not in prompt_campagne
                      and fiche["modele"]["objet_template"] == "{nom} : vos patients vous trouvent-ils ?")
             noms_zones = [z["ville"] for z in fiche["zones"]]

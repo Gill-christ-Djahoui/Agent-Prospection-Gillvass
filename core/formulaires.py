@@ -86,8 +86,17 @@ def fiche(conn, prospect_id):
             "message": p["message_formulaire"] or "", "historique": historique}
 
 
-def generer_message(cfg, prospect_id):
-    """Écrit (ou réécrit) le message à coller dans le formulaire d'un prospect, avec l'IA, et l'enregistre."""
+# Canaux écrits à la main qui partagent cette rédaction : (réglage du prompt, colonne du message, consigne à l'IA).
+CANAUX_MESSAGE = {
+    "formulaire": ("prompt_formulaire", "message_formulaire", "Écris le message pour le formulaire de contact."),
+    "social": ("prompt_social", "message_social", "Écris le message privé."),
+}
+
+
+def generer_message(cfg, prospect_id, canal="formulaire"):
+    """Écrit (ou réécrit) le message à coller dans le formulaire d'un prospect (ou à envoyer en message privé), avec l'IA,
+    et l'enregistre."""
+    cle_prompt, colonne, consigne = CANAUX_MESSAGE[canal]
     manquants = writer.configuration_manquante(cfg)
     if manquants:
         raise ErreurFormulaire("L'IA n'est pas prête : il manque " + ", ".join(manquants) + " (Réglages).")
@@ -105,13 +114,13 @@ def generer_message(cfg, prospect_id):
         raise ErreurFormulaire("Aucun problème concret détecté pour ce prospect : un message sans problème réel à citer serait inventé.")
     signature = ((modele["signature"] if modele else "") or "").strip() or (cfg.get("signature_defaut") or "").strip() \
         or cfg["expediteur_nom"].strip()
-    systeme = writer.rendre(cfg["prompt_formulaire"], {
+    systeme = writer.rendre(cfg[cle_prompt], {
         "nom": p["nom"], "ville": p["ville"] or "", "secteur": campagne["secteur"], "score": min(p["score"], scorer.PLAFOND_AFFICHAGE),
-        "problemes": "\n".join(f"- {x}" for x in problemes), "site": p["site"] or "aucun site web connu",
+        "problemes": "\n".join(f"- {x}" for x in problemes), "site": p["site"] or "aucun site web connu", "reputation": writer.reputation(p),
         "expediteur": cfg["expediteur_nom"].strip(), "signature": signature,
         "angle": appels._angle_de(modele["prompt_systeme"]) if modele else ""})
     systeme += f"\n\nÉcris le message en langue « {campagne['langue']} »."
-    conversation = [{"role": "system", "content": systeme}, {"role": "user", "content": "Écris le message pour le formulaire de contact."}]
+    conversation = [{"role": "system", "content": systeme}, {"role": "user", "content": consigne}]
     try:
         texte = writer._nettoyer_reponse(writer.appeler_ia(cfg, conversation))
         defauts = writer.verifier_message(texte, signature, cfg)
@@ -129,17 +138,18 @@ def generer_message(cfg, prospect_id):
     if len(texte) > _LONGUEUR_MAX_MESSAGE:
         raise ErreurFormulaire("L'IA a écrit un message trop long. Réessaie.")
     with db.connexion() as conn:
-        conn.execute("UPDATE prospects SET message_formulaire = ? WHERE id = ?", (texte, prospect_id))
-    journal.info("message de formulaire généré : prospect %s", prospect_id)
+        conn.execute(f"UPDATE prospects SET {colonne} = ? WHERE id = ?", (texte, prospect_id))
+    journal.info("message (%s) généré : prospect %s", canal, prospect_id)
     return texte
 
 
-def enregistrer_message(conn, prospect_id, texte):
+def enregistrer_message(conn, prospect_id, texte, canal="formulaire"):
     """Enregistre le message relu et corrigé par l'utilisateur (vide = aucun message)."""
+    colonne = CANAUX_MESSAGE[canal][1]
     texte = (texte or "").strip()
     if len(texte) > _LONGUEUR_MAX_MESSAGE:
         raise ErreurValidation({"message": f"{_LONGUEUR_MAX_MESSAGE} caractères au maximum."})
-    if conn.execute("UPDATE prospects SET message_formulaire = ? WHERE id = ?", (texte or None, prospect_id)).rowcount == 0:
+    if conn.execute(f"UPDATE prospects SET {colonne} = ? WHERE id = ?", (texte or None, prospect_id)).rowcount == 0:
         raise ErreurFormulaire("Prospect introuvable.")
 
 

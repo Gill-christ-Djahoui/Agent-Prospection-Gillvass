@@ -101,6 +101,17 @@
   {{ bouton_test('brevo', 'brevo_key,expediteur_email') }}
   <p class="aide">Le test lit ton compte Brevo et vérifie que l'adresse d'expédition y est déclarée. Aucun email n'est envoyé.</p>
 
+  <h3>Boîte de réception (voir les réponses dans l'application)</h3>
+  <p class="aide">L'application lit ta boîte mail en <strong>lecture seule</strong> : elle ne marque rien comme lu, ne déplace ni ne supprime aucun message. Elle repère les réponses à tes envois, passe le prospect en « répondu » et met en liste noire ceux qui répondent « STOP ». C'est la boîte où arrivent les réponses (ton adresse d'expédition ou de réponse). Avec Gmail : serveur <code>imap.gmail.com</code> et un « mot de passe d'application » (Compte Google &gt; Sécurité &gt; Validation en deux étapes). Ne colle jamais ce mot de passe dans une conversation : seulement ici.</p>
+  <div class="grille-champs">
+    {{ champ('imap_serveur', 'Serveur IMAP', 'Exemple : imap.gmail.com, ou le serveur de ton hébergeur.') }}
+    {{ champ('imap_port', 'Port', '993 dans presque tous les cas.', 'number') }}
+    {{ champ('imap_utilisateur', 'Identifiant', 'Souvent ton adresse email complète.') }}
+    {{ champ('imap_dossier', 'Dossier lu', 'INBOX = la boîte de réception.') }}
+  </div>
+  {{ cle_secrete('imap_mot_de_passe', 'Mot de passe de la boîte (ou mot de passe d\'application)') }}
+  {{ bouton_test('boite', 'imap_serveur,imap_port,imap_utilisateur,imap_mot_de_passe,imap_dossier') }}
+
   <div class="actions"><button type="submit" class="bouton">Enregistrer les clés et services</button>
     <span class="resultat" data-enregistre-pour="services" role="status"></span></div>
 </form>
@@ -138,8 +149,28 @@
     <p class="aide">La mise en page ne change aucun mot : elle présente le texte que tu as approuvé (paragraphes, police lisible, pied de page discret). Notre mise en page ne contient ni image ni lien (Brevo, lui, ajoute son propre compteur d'ouvertures). Un texte brut a plus de chances d'arriver dans l'onglet « Principale » de Gmail, un email mis en page dans « Promotions » : compare sur tes propres envois. L'aperçu est dans l'écran Messages.</p>
     <p class="erreur-champ" data-erreur-pour="email_format" hidden></p>
   </div>
-  {{ champ('email_couleur_accent', 'Couleur d\'accent des emails', 'Utilisée pour le petit trait d\'en-tête et le lien vers ton site.', 'color') }}
-  {{ zone_texte('modele_email_html', 'Modèle HTML des emails (avancé)', 'Variables : {contenu} (obligatoire : ton texte mis en page), {mention} et {couleur}. N\'y ajoute ni image ni lien : ils dégradent la délivrabilité.', 9) }}
+  <div class="champ">
+    <label for="f-email_style">Style des emails</label>
+    <select id="f-email_style" data-cle="email_style">
+      {% for code, nom in [('elegant', 'Élégant : carte soignée, trait de couleur, signature en bloc'), ('sobre', 'Sobre : l\'allure d\'un message écrit à la main')] %}
+        <option value="{{ code }}" {% if etat.email_style.valeur == code %}selected{% endif %}>{{ nom }}</option>
+      {% endfor %}
+    </select>
+    <p class="aide">Le style « élégant » est plus beau ; le « sobre » est plus discret et a plus de chances d'arriver dans « Principale » chez Gmail. Aucun des deux n'ajoute d'image, de bouton ni de lien, et aucun ne change un mot. Compare sur tes propres envois de test : l'aperçu est dans l'écran Messages.</p>
+    <p class="erreur-champ" data-erreur-pour="email_style" hidden></p>
+  </div>
+  <div class="champ">
+    <label for="f-canal_appels">Canal téléphone (écran Appels dans le menu)</label>
+    <select id="f-canal_appels" data-cle="canal_appels">
+      {% for code, nom in [('non', 'Non : je ne peux pas appeler'), ('oui', 'Oui : afficher l\'écran Appels')] %}
+        <option value="{{ code }}" {% if etat.canal_appels.valeur == code %}selected{% endif %}>{{ nom }}</option>
+      {% endfor %}
+    </select>
+    <p class="erreur-champ" data-erreur-pour="canal_appels" hidden></p>
+  </div>
+  {{ champ('email_couleur_accent', 'Couleur d\'accent des emails', 'Utilisée pour le trait d\'en-tête, la signature et le lien vers ton site (style élégant).', 'color') }}
+  {{ zone_texte('modele_email_elegant', 'Modèle HTML du style élégant (avancé)', 'Variables : {contenu} (obligatoire), {mention} et {couleur}. N\'y ajoute ni image ni lien.', 9) }}
+  {{ zone_texte('modele_email_html', 'Modèle HTML du style sobre (avancé)', 'Variables : {contenu} (obligatoire : ton texte mis en page), {mention} et {couleur}. N\'y ajoute ni image ni lien : ils dégradent la délivrabilité.', 9) }}
   {{ zone_texte('prompt_relance', 'Consignes de relance (ajoutées au prompt de la campagne)', 'Variables : celles du prompt, plus {numero}, {jours} et {message_precedent}. Une relance suit le même chemin que le premier message : génération, validation humaine, envoi.', 7) }}
   <div class="actions"><button type="submit" class="bouton">Enregistrer l'identité</button>
     <span class="resultat" data-enregistre-pour="identite" role="status"></span></div>
@@ -196,6 +227,9 @@
     {{ champ('contact_liens_max', 'Pages de contact suivies depuis l\'accueil', 'Nombre de liens « contact » suivis sur la page d\'accueil d\'un site, en plus des pages habituelles. 0 = aucun.', 'number') }}
     {{ zone_texte('mots_cles_contact', 'Mots qui désignent une page de contact', 'Un par ligne, sans accent. Un lien dont le texte ou l\'adresse contient l\'un d\'eux est suivi.', 3) }}
     {{ zone_texte('domaines_formulaires', 'Formulaires intégrés reconnus', 'Un fragment d\'adresse par ligne (Typeform, Google Forms…). Un site qui intègre l\'un d\'eux est considéré comme ayant un formulaire de contact.', 4) }}
+    {{ zone_texte('prompt_social', 'Consignes du message privé (Facebook, Instagram…)', 'Le prompt envoyé à l\'IA pour écrire le message privé que tu envoies à la main à un commerce (écran Messages privés). Variables : {expediteur}, {nom}, {ville}, {secteur}, {site}, {problemes}, {score}, {angle}, {signature}.', 14) }}
+    {{ zone_texte('mots_interdits_message', 'Mots interdits dans un message', 'Un début de mot par ligne (« concurren » couvre concurrent et concurrence). Un message qui en contient un est renvoyé à l\'IA pour correction, puis refusé s\'il en garde.', 6) }}
+    {{ zone_texte('domaines_reseaux', 'Réseaux sociaux reconnus', 'Un domaine par ligne. Un « site » qui en est un est le profil du commerce, et les liens vers ces réseaux trouvés sur un site sont retenus comme profil pour les messages privés.', 3) }}
     {{ zone_texte('prompt_appel', 'Consignes du script d\'appel', 'Le prompt envoyé à l\'IA pour écrire le script d\'un appel (écran Appels). Variables : {expediteur}, {nom}, {ville}, {secteur}, {site}, {problemes}, {score}, {angle}.', 12) }}
     {{ zone_texte('prompt_niche', 'Consignes de l\'assistant de niche', 'Le prompt envoyé à l\'IA pour préparer une campagne. Variables : {niche}, {offre}, {probleme}, {ville}, {pays}, {criteres}, {zones_instruction}.', 10) }}
     {{ zone_texte('domaines_plateformes', 'Plateformes et annuaires', 'Un domaine par ligne. Un « site » situé sur l\'un d\'eux (page Doctolib, Facebook…) est traité comme « pas de site propre » : il n\'est pas analysé et n\'entre pas dans le dédoublonnage par domaine.', 6) }}
