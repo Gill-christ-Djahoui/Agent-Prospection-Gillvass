@@ -108,7 +108,7 @@ function initialiserFormulaires() {
     try { f = await api("/api/formulaires/" + id); } catch (_) { return; }
     courant = f;
     champ("ff-nom").textContent = f.nom;
-    champ("ff-meta").textContent = [f.ville, f.campagne, f.site ? "Site : " + f.site : null].filter(Boolean).join(" · ");
+    champ("ff-meta").textContent = [f.ville, f.campagne, f.site ? "Site : " + lienCourt(f.site) : null].filter(Boolean).join(" · ");
     champ("ff-ouvrir").href = f.formulaire_url;
     const problemes = champ("ff-problemes");
     problemes.replaceChildren();

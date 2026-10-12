@@ -16,6 +16,7 @@ Utilisable seul : python -m core.social check     tests sans réseau, sur base j
 """
 import json
 import logging
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -45,11 +46,34 @@ def lien_recherche(nom, ville, reseaux):
     return "https://www.google.com/search?q=" + quote_plus(f'"{nom}" {ville or ""} {sites}'.strip())
 
 
-def _liens(ligne, reseaux):
-    """Les façons de joindre ce commerce, la meilleure d'abord : profil connu, fiche Google Maps, recherche."""
+def numero_whatsapp(telephone, indicatif, prefixes_mobiles):
+    """Numéro au format international sans « + » (« 33612345678 ») si c'est un mobile joignable sur WhatsApp, sinon None.
+    Accepte « 06 12 34 56 78 » et « +33 6 12 34 56 78 ». Un fixe n'a pas WhatsApp ; l'indicatif et les débuts de mobiles
+    sont des réglages (autres pays, autres opérateurs)."""
+    chiffres = re.sub(r"\D", "", telephone or "")
+    indicatif = re.sub(r"\D", "", indicatif or "")
+    if not chiffres or not indicatif:
+        return None
+    if (telephone or "").lstrip().startswith(("+", "00")) and chiffres.lstrip("0").startswith(indicatif):
+        national = "0" + chiffres.lstrip("0")[len(indicatif):]
+    else:
+        national = chiffres
+    if len(national) < 9 or not any(national.startswith(pre) for pre in prefixes_mobiles if pre):
+        return None
+    return indicatif + national[1:]
+
+
+def _whatsapp_du_prospect(conn, telephone):
+    return numero_whatsapp(telephone, db.get_reglage(conn, "whatsapp_indicatif", ""), db.reglage_json(conn, "whatsapp_prefixes_mobiles"))
+
+
+def _liens(ligne, reseaux, whatsapp=None):
+    """Les façons de joindre ce commerce, la meilleure d'abord : profil connu, WhatsApp (mobile), fiche Google Maps, recherche."""
     liens = []
     if ligne["profil_social_url"]:
         liens.append({"type": "profil", "libelle": "Ouvrir son profil", "url": ligne["profil_social_url"]})
+    if whatsapp:
+        liens.append({"type": "whatsapp", "libelle": "Écrire sur WhatsApp", "url": "https://wa.me/" + whatsapp})
     if ligne["maps_url"]:
         liens.append({"type": "maps", "libelle": "Fiche Google Maps", "url": ligne["maps_url"]})
     liens.append({"type": "recherche", "libelle": "Chercher son profil", "url": lien_recherche(ligne["nom"], ligne["ville"], reseaux)})
@@ -86,7 +110,8 @@ def file(conn, campagne_id=None, etat="faire", limite=500):
         l["score_affiche"] = min(l["score"], scorer.PLAFOND_AFFICHAGE)
         l["a_message"] = bool(l.pop("message_social"))
         l["dernier_libelle"] = RESULTATS.get(l["dernier_resultat"])
-        l["liens"] = _liens(l, reseaux)
+        l["whatsapp"] = _whatsapp_du_prospect(conn, l["telephone"])
+        l["liens"] = _liens(l, reseaux, l["whatsapp"])
     return {"lignes": gardees[:limite], "compteurs": compteurs, "total": len(gardees)}
 
 
@@ -100,7 +125,8 @@ def fiche(conn, prospect_id):
         "SELECT id, fait_le, resultat, note FROM contacts_social WHERE prospect_id = ? ORDER BY id DESC", (prospect_id,))]
     return {"id": p["id"], "nom": p["nom"], "ville": p["ville"], "site": p["site"], "profil_social_url": p["profil_social_url"],
             "campagne": p["campagne_nom"], "score": min(p["score"], scorer.PLAFOND_AFFICHAGE),
-            "liens": _liens(p, db.reglage_json(conn, "domaines_reseaux")),
+            "whatsapp": _whatsapp_du_prospect(conn, p["telephone"]),
+            "liens": _liens(p, db.reglage_json(conn, "domaines_reseaux"), _whatsapp_du_prospect(conn, p["telephone"])),
             "problemes": appels._problemes_concrets(conn, p["campagne_id"], json.loads(p["problemes"]), {}),
             "message": p["message_social"] or "", "historique": historique}
 
@@ -168,6 +194,14 @@ def _autotests():
             return e
         return None
 
+    mobiles = ["06", "07"]
+    verifier("WhatsApp : mobile national ou international converti, fixe, numéro trop court ou sans indicatif refusés",
+             numero_whatsapp("06 12 34 56 78", "33", mobiles) == "33612345678"
+             and numero_whatsapp("+33 7 12 34 56 78", "33", mobiles) == "33712345678"
+             and numero_whatsapp("0033 6 12 34 56 78", "33", mobiles) == "33612345678"
+             and numero_whatsapp("02 47 12 34 56", "33", mobiles) is None and numero_whatsapp("06 12", "33", mobiles) is None
+             and numero_whatsapp("06 12 34 56 78", "", mobiles) is None and numero_whatsapp(None, "33", mobiles) is None
+             and numero_whatsapp("06 12 34 56 78", "33", []) is None)
     verifier("lien de recherche : le nom entre guillemets, la ville et chaque réseau reconnu",
              lien_recherche("Chez Léa", "Tours", ["facebook.com", "instagram.com"]).startswith("https://www.google.com/search?q=")
              and "site%3Afacebook.com+OR+site%3Ainstagram.com" in lien_recherche("Chez Léa", "Tours", ["facebook.com", "instagram.com"])
@@ -209,14 +243,17 @@ def _autotests():
                 f = ajouter("F formulaire seul", None, None, "https://f.fr/contact", None, 9, ["sans_site"])
                 g = ajouter("G formulaire et profil", "https://www.instagram.com/g", None, "https://g.fr/contact", None, 5, ["sans_site"])
                 i = ajouter("I ignoré", "https://www.facebook.com/i", None, None, None, 9, ["sans_site"], statut="ignore")
+                c.execute("UPDATE prospects SET telephone = '06 12 34 56 78' WHERE id = ?", (b,))  # mobile : WhatsApp
+                c.execute("UPDATE prospects SET telephone = '02 47 00 00 00' WHERE id = ?", (a,))  # fixe : pas de WhatsApp
 
                 q = file(c)
                 verifier("file : sans email, profil connu ou aucun autre moyen écrit ; un formulaire seul va dans Formulaires ; ignorés exclus ; "
                          "profil connu d'abord à score égal",
                          [l["nom"] for l in q["lignes"]] == ["A profil", "B sans rien", "G formulaire et profil"] and q["compteurs"]["faire"] == 3)
-                verifier("liens : profil, fiche Maps et recherche pour A ; Maps et recherche pour B ; recherche seule si rien d'autre",
+                verifier("liens : profil, fiche Maps et recherche pour A (fixe : pas de WhatsApp) ; WhatsApp, Maps et recherche pour B (mobile) ; recherche seule si rien d'autre",
                          [x["type"] for x in q["lignes"][0]["liens"]] == ["profil", "maps", "recherche"]
-                         and [x["type"] for x in q["lignes"][1]["liens"]] == ["maps", "recherche"]
+                         and [x["type"] for x in q["lignes"][1]["liens"]] == ["whatsapp", "maps", "recherche"]
+                         and q["lignes"][1]["liens"][0]["url"] == "https://wa.me/33612345678" and q["lignes"][0]["whatsapp"] is None
                          and [x["type"] for x in q["lignes"][2]["liens"]] == ["profil", "recherche"])
                 verifier("vrai problème en clair, pas encore de message", q["lignes"][0]["problemes"] == ["Aucun site web"] and not q["lignes"][0]["a_message"])
 

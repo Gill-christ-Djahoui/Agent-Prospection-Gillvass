@@ -87,6 +87,13 @@
       {% endfor %}
     </select>
   </label>
+  <label>Site web
+    <select id="f-site">
+      <option value="">Tous</option>
+      <option value="avec">Avec un site propre</option>
+      <option value="sans">Sans site propre (aucun site, ou simple page Facebook, Instagram…)</option>
+    </select>
+  </label>
   <label>Moyen de contact
     <select id="f-email">
       <option value="">Tous</option>
@@ -116,6 +123,7 @@
   <span class="resultat" id="resultat-lot" role="status"></span>
 </div>
 
+<div class="defile-x">
 <table class="tableau tableau-prospects" id="tableau-prospects" data-seuil="{{ seuil }}">
   <thead>
     <tr>
@@ -134,14 +142,14 @@
   <tbody>
     {% for p in prospects %}
       <tr data-campagne="{{ p.campagne_id }}" data-ville="{{ (p.ville or '')|lower }}" data-statut="{{ p.statut }}"
-          data-email="{{ 'avec' if p.email else 'sans' }}" data-contact="{{ 'email' if p.email else ('formulaire' if p.formulaire_url else ('profil' if p.profil_social_url else 'aucun')) }}" data-generique="{{ 'oui' if p.generique else 'non' }}"
+          data-site="{{ 'avec' if p.site_domaine else 'sans' }}" data-email="{{ 'avec' if p.email else 'sans' }}" data-contact="{{ 'email' if p.email else ('formulaire' if p.formulaire_url else ('profil' if p.profil_social_url else 'aucun')) }}" data-generique="{{ 'oui' if p.generique else 'non' }}"
           data-nom="{{ p.nom|lower }}" data-score="{{ p.score }}" data-envoi="{{ p.date_envoi or '' }}"
           data-id="{{ p.id }}" data-recherche="{{ (p.nom ~ ' ' ~ (p.ville or '') ~ ' ' ~ (p.site_domaine or '') ~ ' ' ~ (p.email or ''))|lower }}">
         <td class="col-coche"><input type="checkbox" class="coche" aria-label="Sélectionner {{ p.nom }}"></td>
         <td>{{ p.nom }}{% if p.notes %} <span class="badge" title="{{ p.notes }}">note</span>{% endif %}{% if not p.email and p.telephone %}<br><span class="code">Tél. {{ p.telephone }}</span>{% endif %}</td>
         <td>{{ p.ville or '—' }}</td>
-        <td>{% if p.site %}<a href="{{ p.site }}" target="_blank" rel="noopener noreferrer">{{ p.site_domaine or p.site }}</a>{% else %}<span class="code">aucun site</span>{% endif %}</td>
-        <td>{% if p.email %}{{ p.email }}{% if p.generique %} <span class="badge" title="Adresse chez un fournisseur grand public : à toi de décider">générique</span>{% endif %}{% elif p.formulaire_url %}<a href="{{ p.formulaire_url }}" target="_blank" rel="noopener noreferrer" title="Pas d'email, mais un formulaire de contact : écran Formulaires">formulaire de contact ↗</a>{% elif p.profil_social_url %}<a href="{{ p.profil_social_url }}" target="_blank" rel="noopener noreferrer" title="Pas d'email, mais un profil : écran Messages privés">profil Facebook / Instagram ↗</a>{% else %}<span class="code" title="Ni email, ni formulaire, ni profil trouvés : écran Messages privés (recherche du profil à la main)">aucun moyen direct</span>{% endif %}</td>
+        <td>{% if p.site %}<a class="lien-court" href="{{ p.site }}" title="{{ p.site }}" target="_blank" rel="noopener noreferrer">{{ (p.site_domaine or p.site)|lien_court }}</a>{% else %}<span class="code">aucun site</span>{% endif %}</td>
+        <td class="col-email">{% if p.email %}<span class="lien-court" title="{{ p.email }}">{{ p.email }}</span>{% if p.generique %} <span class="badge" title="Adresse chez un fournisseur grand public : à toi de décider">générique</span>{% endif %}{% elif p.formulaire_url %}<a class="lien-court" href="{{ p.formulaire_url }}" target="_blank" rel="noopener noreferrer" title="Pas d'email, mais un formulaire de contact : écran Formulaires">formulaire de contact ↗</a>{% elif p.profil_social_url %}<a class="lien-court" href="{{ p.profil_social_url }}" target="_blank" rel="noopener noreferrer" title="Pas d'email, mais un profil : écran Messages privés">profil Facebook / Instagram ↗</a>{% else %}<span class="code" title="Ni email, ni formulaire, ni profil trouvés : écran Messages privés (recherche du profil à la main)">aucun moyen direct</span>{% endif %}</td>
         <td>{% if p.statut == 'nouveau' %}<span class="code">pas encore analysé</span>{% elif p.problemes_libelles %}{{ p.problemes_libelles|join(' · ') }}{% else %}—{% endif %}</td>
         <td class="num score" title="Score brut : {{ p.score }}">{% if p.statut == 'nouveau' %}—{% else %}{{ [p.score, plafond]|min }}{% endif %}</td>
         <td><span class="chip chip-{{ p.statut }}">{{ statut_libelle(p.statut) }}</span></td>
@@ -162,6 +170,7 @@
     </tr>
   </tbody>
 </table>
+</div>
 {% endblock %}
 
 {% block scripts %}<script src="{{ url_for('static', filename='prospects.js') }}"></script>{% endblock %}

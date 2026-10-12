@@ -281,7 +281,8 @@ progress::-moz-progress-bar { background: var(--accent); border-radius: 999px; }
 .tableau-prospects th[data-tri]:hover { color: var(--texte); }
 .tableau-prospects th[aria-sort="ascending"]::after { content: " ▲"; font-size: 9px; }
 .tableau-prospects th[aria-sort="descending"]::after { content: " ▼"; font-size: 9px; }
-.tableau-prospects td { vertical-align: top; overflow-wrap: anywhere; }
+.tableau-prospects td { vertical-align: top; }
+.tableau-prospects td:nth-child(6) { overflow-wrap: anywhere; }
 .tableau-prospects td.actions-ligne { min-width: 150px; }
 .tableau-prospects td:nth-child(6) { min-width: 150px; max-width: 280px; font-size: 13px; color: var(--texte-doux); }  /* problèmes détectés */
 .tableau-prospects td.score { font-weight: 800; font-size: 17px; letter-spacing: -.01em; }
@@ -523,3 +524,9 @@ kbd { padding: 1px 6px; border: 1px solid var(--bordure-forte); border-bottom-wi
 .apercu-zone { margin: 4px 0 16px; border: 1px solid var(--bordure); border-radius: var(--rayon-petit); padding: 0 14px; background: var(--fond-carte, transparent); }
 .apercu-zone > summary { cursor: pointer; padding: 11px 0; font-weight: 600; font-size: 13.5px; }
 .apercu-mail { display: block; width: 100%; height: 440px; border: 1px solid var(--bordure); border-radius: var(--rayon-petit); background: #ffffff; margin: 6px 0 14px; }
+
+/* Adresses web et emails : une seule ligne, coupée par « … » (l'adresse complète est dans l'infobulle et le lien), jamais cassée lettre par lettre. */
+.lien-court { display: inline-block; max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.tableau-prospects td:nth-child(4), .tableau-prospects td:nth-child(5) { min-width: 130px; }
+.defile-x { overflow-x: auto; margin-bottom: 20px; }
+.defile-x > .tableau { margin-bottom: 0; }

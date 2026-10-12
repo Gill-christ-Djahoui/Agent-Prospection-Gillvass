@@ -101,7 +101,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (p.site) {
       const lien = document.createElement("a");
       lien.href = p.site; lien.target = "_blank"; lien.rel = "noopener noreferrer";
-      lien.textContent = p.site;
+      lien.textContent = lienCourt(p.site); lien.title = p.site;
       $("m-meta").append(" · ", lien);
     }
 

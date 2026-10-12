@@ -376,3 +376,15 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   afficher();
 });
+
+
+// Adresse web courte et lisible pour l'affichage (« instagram.com/une_fleur »), l'adresse complète reste dans le lien.
+function lienCourt(url, maximum = 34) {
+  try {
+    const u = new URL(/^https?:\/\//i.test(url) ? url : "https://" + url);
+    const texte = (u.hostname.replace(/^www\./, "") + u.pathname).replace(/\/+$/, "");
+    return texte.length <= maximum ? texte : texte.slice(0, maximum - 1).replace(/[\/.\-_ ]+$/, "") + "…";
+  } catch (_) {
+    return url.length <= maximum ? url : url.slice(0, maximum - 1) + "…";
+  }
+}

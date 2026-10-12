@@ -123,7 +123,14 @@ function initialiserSocial() {
     const zone = champ("fs-liens");
     zone.replaceChildren();
     liens.forEach((lien, k) => {
-      zone.appendChild(lienExterne(lien, k === 0));
+      const a = lienExterne(lien, k === 0);
+      if (lien.type === "whatsapp") {  // la conversation s'ouvre avec le message tel qu'il est écrit à cet instant
+        a.addEventListener("click", () => {
+          const texte = champ("fs-message").value.trim();
+          a.href = lien.url + (texte ? "?text=" + encodeURIComponent(texte) : "");
+        });
+      }
+      zone.appendChild(a);
       zone.append(" ");
     });
   }
@@ -133,7 +140,7 @@ function initialiserSocial() {
     try { f = await api("/api/social/" + id); } catch (_) { return; }
     courant = f;
     champ("fs-nom").textContent = f.nom;
-    champ("fs-meta").textContent = [f.ville, f.campagne, f.site ? "Site : " + f.site : null].filter(Boolean).join(" · ");
+    champ("fs-meta").textContent = [f.ville, f.campagne, f.site ? "Site : " + lienCourt(f.site) : null].filter(Boolean).join(" · ");
     dessinerLiens(f.liens);
     champ("fs-profil").value = f.profil_social_url || "";
     champ("fs-etat-profil").textContent = "";
@@ -204,7 +211,7 @@ function initialiserSocial() {
       afficherResultat(sortie, "attention", "texte sélectionné : fais Ctrl+C.");
       return;
     }
-    afficherResultat(sortie, "ok", "copié. Colle-le dans la conversation.");
+    afficherResultat(sortie, "ok", "copié. Colle-le dans la conversation (sur WhatsApp, le bouton l'insère déjà pour toi).");
   });
 
   champ("fs-generer").addEventListener("click", async () => {

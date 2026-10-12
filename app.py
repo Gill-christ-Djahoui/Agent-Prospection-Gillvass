@@ -5,6 +5,7 @@ import socket
 import threading
 import webbrowser
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from flask import (Flask, Response, abort, jsonify, redirect, render_template, request, session,
@@ -57,6 +58,14 @@ def _etat_secrets(etat):
     return {cle: info for cle, info in etat.items() if info["secret"]}
 
 
+def lien_court(url, maximum=34):
+    """Adresse web lisible et courte pour l'affichage : « instagram.com/une_fleur_sur_la_place » (sans https://, www., paramètres),
+    coupée avec « … » au-delà de `maximum` caractères. L'adresse complète reste dans le lien (href) et l'infobulle."""
+    morceaux = urlsplit(url if "//" in (url or "") else "//" + (url or ""))
+    texte = (morceaux.netloc.lower().removeprefix("www.") + morceaux.path).rstrip("/")
+    return texte if len(texte) <= maximum else texte[:maximum - 1].rstrip("/.-_ ") + "…"
+
+
 def create_app():
     config.configurer_logging()
     db.init_db()  # crée la base au premier lancement, sans effet ensuite
@@ -64,6 +73,7 @@ def create_app():
         jobs.marquer_interrompus(conn)  # tâches restées « en cours » d'un lancement précédent
 
     app = Flask(__name__)
+    app.add_template_filter(lien_court, "lien_court")
     with db.connexion() as conn:
         app.config["ACCES_INITIAL"] = auth.initialiser_si_absent(conn)  # affiché une seule fois dans la console
         app.secret_key = auth.cle_de_session(conn)

@@ -132,7 +132,7 @@ function initialiserAppels() {
     } catch (_) { return; }
     ligneCourante = f;
     champ("fa-nom").textContent = f.nom;
-    champ("fa-meta").textContent = [f.ville, f.adresse, f.campagne, f.site ? "Site : " + f.site : "Aucun site propre connu"].filter(Boolean).join(" · ");
+    champ("fa-meta").textContent = [f.ville, f.adresse, f.campagne, f.site ? "Site : " + lienCourt(f.site) : "Aucun site propre connu"].filter(Boolean).join(" · ");
     const tel = champ("fa-tel");
     tel.textContent = f.telephone || "";
     if (f.tel) tel.href = "tel:" + f.tel; else tel.removeAttribute("href");

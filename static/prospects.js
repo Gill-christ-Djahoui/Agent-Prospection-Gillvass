@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
     campagne: document.getElementById("f-campagne"),
     ville: document.getElementById("f-ville"),
     statut: document.getElementById("f-statut"),
+    site: document.getElementById("f-site"),
     email: document.getElementById("f-email"),
     generique: document.getElementById("f-generique"),
     texte: document.getElementById("f-texte"),
@@ -26,6 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const ok = (!filtres.campagne.value || d.campagne === filtres.campagne.value)
         && (!filtres.ville.value || d.ville === filtres.ville.value)
         && (!filtres.statut.value || d.statut === filtres.statut.value)
+        && (!filtres.site.value || d.site === filtres.site.value)
         && (!filtres.email.value || (filtres.email.value === "ecrit" ? d.contact !== "aucun" : d.contact === filtres.email.value))
         && (!filtres.generique.value || d.generique === filtres.generique.value)
         && (!texte || d.recherche.includes(texte));
@@ -52,7 +54,7 @@ document.addEventListener("DOMContentLoaded", () => {
     try { revue = await api("/api/prospects/" + prospectId + "/revue"); } catch (_) { return; }
     const p = revue.prospect;
     document.getElementById("da-titre").textContent = p.nom;
-    document.getElementById("da-meta").textContent = [p.ville, p.site || "aucun site renseigné"].filter(Boolean).join(" · ");
+    document.getElementById("da-meta").textContent = [p.ville, p.site ? lienCourt(p.site) : "aucun site renseigné"].filter(Boolean).join(" · ");
     const lignesDetail = document.getElementById("da-corps");
     lignesDetail.replaceChildren();
     revue.problemes.forEach((pb) => {

@@ -183,6 +183,9 @@ def acces_et_ecrans():
     verifier("formulaires sans connexion : refusés (401)",
              application.test_client().get("/api/formulaires/file").status_code == 401
              and application.test_client().post(f"/api/campagnes/{appel_c}/contacts", json={}).status_code == 401)
+    page_prospects = client.get("/prospects").get_data(as_text=True)
+    verifier("écran Prospects : filtre « Site web » (avec / sans site propre) et marque data-site sur chaque ligne",
+             'id="f-site"' in page_prospects and 'data-site="' in page_prospects and 'value="sans"' in page_prospects)
     # --- messages privés (Facebook, Instagram…) : écran, API ---
     verifier("l'écran Messages privés est dans le rail de navigation", 'href="/messages-prives"' in client.get("/").get_data(as_text=True))
     page = client.get("/messages-prives").get_data(as_text=True)

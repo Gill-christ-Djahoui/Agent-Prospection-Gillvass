@@ -88,6 +88,8 @@ SPECS = {
     "prompt_social": {"type": "texte", "requis": True, "variables": (
         "expediteur", "nom", "ville", "secteur", "site", "problemes", "score", "angle", "signature", "reputation")},
     "domaines_reseaux": {"type": "liste", "domaines": True},
+    "whatsapp_indicatif": {"type": "entier", "min": 1, "max": 999},
+    "whatsapp_prefixes_mobiles": {"type": "liste"},
     "domaines_formulaires": {"type": "liste"},
     "mots_cles_contact": {"type": "liste"},
     "contact_liens_max": {"type": "entier", "min": 0, "max": 10},

@@ -136,7 +136,7 @@ Règles impératives :
 
 # Message privé à envoyer à la main sur Facebook, Instagram… (canal « Messages privés »). Variables : {expediteur} {nom}
 # {ville} {secteur} {site} {problemes} {score} {angle} {signature}.
-_PROMPT_SOCIAL = """Tu es {expediteur}, développeur web freelance. Tu écris en français le message privé que tu vas envoyer sur Facebook ou Instagram à {nom}, établissement du secteur « {secteur} » situé à {ville}. La personne qui le lira ne te connaît pas et le lira sur son téléphone. Écris comme une vraie personne polie, pas comme une entreprise qui prospecte.
+_PROMPT_SOCIAL = """Tu es {expediteur}, développeur web freelance. Tu écris en français le message privé que tu vas envoyer sur Facebook, Instagram ou WhatsApp à {nom}, établissement du secteur « {secteur} » situé à {ville}. La personne qui le lira ne te connaît pas et le lira sur son téléphone. Écris comme une vraie personne polie, pas comme une entreprise qui prospecte.
 
 Ce que tu sais de cet établissement :
 - Site : {site}
@@ -145,7 +145,7 @@ Ce que tu sais de cet établissement :
 - Fiche Google : {reputation}
 
 Règles impératives :
-- Entre 40 et 65 mots au total.
+- Entre 45 et 75 mots au total.
 - Écris 3 ou 4 paragraphes très courts (1 ou 2 phrases chacun), séparés par une ligne vide. Chaque phrase fait 15 mots au maximum.
 - Écris à la première personne (« je »), au vouvoiement. Jamais « nous », jamais « notre équipe ».
 - Après la salutation, dis en une phrase simple qui tu es et que tu as trouvé leur établissement sur Google (c'est vrai). N'invente aucune histoire (« je passais devant », « on m'a parlé de vous »).
@@ -155,6 +155,7 @@ Règles impératives :
 - Aucun mot de vente (gratuit, offre, promotion, remise, garantie, urgent, opportunité, améliorer, booster, optimiser, visibilité, solution, performant, digital), aucun point d'exclamation, aucun emoji, aucun lien. Ne cite aucun prix.
 - Termine par UNE question facile, à laquelle on répond par oui ou non, qui ne demande aucun engagement. Elle ne contient jamais « discuter », « échanger », « rendez-vous », « appel » ni « oui ou non ».
 - Commence par « Bonjour, » (jamais un prénom).
+- Juste avant la signature, ajoute une phrase courte pour se retirer, par exemple « Si vous préférez que je ne vous écrive plus, dites-le-moi simplement. ».
 - N'invente jamais un chiffre, un client ou une référence.
 - Écris uniquement le message, sans objet, puis termine par cette signature, telle quelle :
 {signature}
@@ -239,6 +240,10 @@ REGLAGES = [
     # Réseaux sociaux reconnus : un « site » qui en est un est le profil du commerce (canal Messages privés), et les liens
     # vers ces réseaux trouvés sur un site sont retenus comme profil.
     ("domaines_reseaux", json.dumps(["facebook.com", "fb.com", "instagram.com"]), 0),
+    # WhatsApp : indicatif du pays des commerces visés (sans « + »), et débuts de numéros nationaux qui sont des mobiles
+    # (un fixe n'a pas WhatsApp). Pour la France : 33, et 06 / 07.
+    ("whatsapp_indicatif", "33", 0),
+    ("whatsapp_prefixes_mobiles", json.dumps(["06", "07"]), 0),
     ("prompt_analyste",
      "Tu es un analyste de prospection B2B par email, direct et honnête. On te donne des statistiques AGRÉGÉES (aucun nom de "
      "prospect) sur une activité de prospection menée par un développeur web freelance auprès de petites entreprises. "
@@ -578,6 +583,9 @@ def _moderniser_prompts(conn):
         angle = prompt[prompt.rindex("Angle :"):].strip()
         salutation = next((r for r in _REGLES_SALUTATION if r in prompt), REGLE_SALUTATION_DEFAUT)
         conn.execute("UPDATE modeles_message SET prompt_systeme = ? WHERE id = ?", (composer_prompt(angle, salutation), ligne[0]))
+    ligne = conn.execute("SELECT valeur FROM reglages WHERE cle = 'prompt_social'").fetchone()
+    if ligne and ligne[0] and _MARQUE_A_JOUR in ligne[0] and "pour se retirer" not in ligne[0]:  # ajout de la phrase de retrait
+        conn.execute("UPDATE reglages SET valeur = ? WHERE cle = 'prompt_social'", (_PROMPT_SOCIAL,))
     for cle, neuf in (("prompt_formulaire", _PROMPT_FORMULAIRE), ("prompt_social", _PROMPT_SOCIAL)):
         ligne = conn.execute("SELECT valeur FROM reglages WHERE cle = ?", (cle,)).fetchone()
         if ligne and ligne[0] and _a_moderniser(ligne[0]):
