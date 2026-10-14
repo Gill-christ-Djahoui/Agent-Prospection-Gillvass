@@ -120,6 +120,7 @@
   <strong><span id="nb-selection">0</span> sélectionné(s)</strong>
   <button type="button" class="bouton" id="btn-generer-lot">Générer les messages</button>
   <button type="button" class="secondaire" id="btn-ignorer-lot">Ignorer</button>
+  <button type="button" class="secondaire danger" id="btn-supprimer-lot" title="Supprime définitivement les prospects cochés (sauf ceux déjà contactés par email)">Supprimer</button>
   <span class="resultat" id="resultat-lot" role="status"></span>
 </div>
 
@@ -159,6 +160,7 @@
           {% if p.statut in generables %}<button type="button" class="secondaire" data-generer="{{ p.id }}" title="Génère un message, même sous le seuil de score">Générer le message</button>{% endif %}
           {% if p.statut == 'ignore' %}<button type="button" class="secondaire" data-qualifier="{{ p.id }}">Remettre en qualifié</button>
           {% elif p.statut in ['nouveau', 'qualifie', 'message_pret', 'approuve'] %}<button type="button" class="secondaire" data-ignorer="{{ p.id }}">Ignorer</button>{% endif %}
+          {% if p.statut not in ['envoye', 'repondu'] %}<button type="button" class="secondaire danger" data-supprimer="{{ p.id }}" title="Supprimer définitivement ce prospect">Supprimer</button>{% endif %}
         </td>
       </tr>
     {% endfor %}

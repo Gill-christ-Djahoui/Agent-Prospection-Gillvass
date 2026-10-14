@@ -300,6 +300,41 @@ def supprimer(conn, campagne_id, forcer=False):
     return compte
 
 
+def supprimer_prospects(conn, ids):
+    """Supprime définitivement des prospects, avec leurs messages et leurs journaux de contact (appels, formulaires, messages
+    privés, réponses). Ne touche jamais :
+    - un prospect déjà contacté par email (envoi réel) ou ayant répondu : son historique sert au quota du jour, aux relances et à
+      l'anti-doublon ;
+    - un prospect dont la campagne a un scan, une analyse ou une rédaction en cours ;
+    - la liste noire.
+    Un prospect supprimé n'est plus connu : un nouveau scan peut le retrouver. Pour l'écarter sans l'oublier, il faut l'ignorer.
+    Renvoie {'supprimes', 'refuses': {'contactes': n, 'tache_en_cours': n, 'introuvables': n}}."""
+    ids = sorted({i for i in ids if isinstance(i, int) and not isinstance(i, bool)})
+    refuses = {"contactes": 0, "tache_en_cours": 0, "introuvables": 0}
+    a_supprimer = []
+    for prospect_id in ids:
+        ligne = conn.execute("SELECT campagne_id, statut FROM prospects WHERE id = ?", (prospect_id,)).fetchone()
+        if ligne is None:
+            refuses["introuvables"] += 1
+        elif ligne["statut"] in ("envoye", "repondu") or conn.execute(
+                "SELECT 1 FROM envois e JOIN messages m ON m.id = e.message_id WHERE m.prospect_id = ? AND e.statut <> 'echec' LIMIT 1",
+                (prospect_id,)).fetchone():
+            refuses["contactes"] += 1
+        elif conn.execute("SELECT 1 FROM jobs WHERE campagne_id = ? AND statut IN ('en_attente', 'en_cours') LIMIT 1",
+                          (ligne["campagne_id"],)).fetchone():
+            refuses["tache_en_cours"] += 1
+        else:
+            a_supprimer.append(prospect_id)
+    for prospect_id in a_supprimer:
+        conn.execute("DELETE FROM envois WHERE message_id IN (SELECT id FROM messages WHERE prospect_id = ?)", (prospect_id,))  # échecs
+        for journal_du_prospect in ("appels", "contacts_formulaire", "contacts_social", "reponses", "messages"):
+            conn.execute(f"DELETE FROM {journal_du_prospect} WHERE prospect_id = ?", (prospect_id,))
+        conn.execute("DELETE FROM prospects WHERE id = ?", (prospect_id,))
+    if a_supprimer:
+        journal.info("%d prospect(s) supprimé(s) à la main", len(a_supprimer))
+    return {"supprimes": len(a_supprimer), "refuses": refuses}
+
+
 # --------------------------------------------------------------------------------------
 # Écriture : zones
 # --------------------------------------------------------------------------------------
@@ -623,6 +658,38 @@ def _autotests():
                      and c.execute("SELECT COUNT(*) FROM envois").fetchone()[0] == 0)
             verifier("la liste noire n'est jamais touchée par une suppression",
                      db.est_en_liste_noire(c, "desinscrit@exemple.fr"))
+
+            # --- Suppression de prospects, un par un ou en groupe ---
+            lot = creer(c, {"nom": "Lot", "secteur": "s", "pays": "FR", "langue": "fr"})
+            for nom in ("P libre", "P echec", "P envoye", "P repondu", "P journal"):
+                db.inserer_prospect(c, {"campagne_id": lot, "nom": nom, "email": nom.replace(" ", "") + "@x.fr", "ville": "Lyon",
+                                        "source": "openstreetmap", "source_id": "osm:" + nom})
+            pid = {r["nom"]: r["id"] for r in c.execute("SELECT id, nom FROM prospects WHERE campagne_id = ?", (lot,))}
+            for nom in ("P echec", "P envoye"):
+                m = c.execute("INSERT INTO messages (prospect_id, objet, corps, version) VALUES (?, 'O', 'C', 1)", (pid[nom],)).lastrowid
+                c.execute("INSERT INTO envois (message_id, statut, brevo_id, erreur) VALUES (?, ?, 'b', 'e')",
+                          (m, "echec" if nom == "P echec" else "envoye"))
+            c.execute("UPDATE prospects SET statut = 'repondu' WHERE id = ?", (pid["P repondu"],))
+            c.execute("INSERT INTO contacts_social (prospect_id, resultat) VALUES (?, 'envoye')", (pid["P journal"],))
+            c.execute("INSERT INTO appels (prospect_id, resultat) VALUES (?, 'pas_de_reponse')", (pid["P journal"],))
+            c.execute("INSERT INTO contacts_formulaire (prospect_id, resultat) VALUES (?, 'envoye')", (pid["P journal"],))
+            r = supprimer_prospects(c, [pid["P envoye"], pid["P repondu"], 99999, "x", True])
+            verifier("suppression de prospects : un prospect déjà contacté par email ou ayant répondu est refusé, inconnu compté à part, rien supprimé",
+                     r == {"supprimes": 0, "refuses": {"contactes": 2, "tache_en_cours": 0, "introuvables": 1}}
+                     and c.execute("SELECT COUNT(*) FROM prospects WHERE campagne_id = ?", (lot,)).fetchone()[0] == 5)
+            c.execute("INSERT INTO jobs (type, campagne_id, statut) VALUES ('scan', ?, 'en_cours')", (lot,))
+            verifier("suppression de prospects : refusée pendant qu'une tâche tourne sur leur campagne",
+                     supprimer_prospects(c, [pid["P libre"]])["refuses"]["tache_en_cours"] == 1
+                     and c.execute("SELECT COUNT(*) FROM prospects WHERE id = ?", (pid["P libre"],)).fetchone()[0] == 1)
+            c.execute("UPDATE jobs SET statut = 'termine' WHERE campagne_id = ?", (lot,))
+            r = supprimer_prospects(c, [pid["P libre"], pid["P echec"], pid["P journal"], pid["P envoye"]])
+            verifier("suppression en groupe : les libres partent avec messages, envoi en échec et journaux ; l'envoyé reste",
+                     r == {"supprimes": 3, "refuses": {"contactes": 1, "tache_en_cours": 0, "introuvables": 0}}
+                     and {x[0] for x in c.execute("SELECT nom FROM prospects WHERE campagne_id = ?", (lot,))} == {"P envoye", "P repondu"}
+                     and c.execute("SELECT COUNT(*) FROM messages WHERE prospect_id IN (?, ?)", (pid["P echec"], pid["P libre"])).fetchone()[0] == 0
+                     and all(c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] == 0 for t in ("appels", "contacts_social", "contacts_formulaire"))
+                     and c.execute("SELECT COUNT(*) FROM envois WHERE statut = 'echec'").fetchone()[0] == 0
+                     and c.execute("PRAGMA foreign_key_check").fetchall() == [] and db.est_en_liste_noire(c, "desinscrit@exemple.fr"))
             verifier("aucune ligne orpheline après suppression (clés étrangères cohérentes)",
                      c.execute("PRAGMA foreign_key_check").fetchall() == []
                      and cid in {x["id"] for x in lister(c)})

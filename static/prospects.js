@@ -171,12 +171,41 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!bouton) return;
     if (bouton.dataset.generer) {
       lancerGeneration([Number(bouton.dataset.generer)], true);  // un prospect précis : génération forcée
+    } else if (bouton.dataset.supprimer) {
+      await supprimer([Number(bouton.dataset.supprimer)]);
     } else if (bouton.dataset.ignorer || bouton.dataset.qualifier) {
       await changerStatut([Number(bouton.dataset.ignorer || bouton.dataset.qualifier)], bouton.dataset.ignorer ? "ignore" : "qualifie");
     }
   });
   document.getElementById("btn-ignorer-lot").addEventListener("click", () =>
     changerStatut(coches().map((l) => Number(l.dataset.id)), "ignore"));
+
+  document.getElementById("btn-supprimer-lot").addEventListener("click", () =>
+    supprimer(coches().map((l) => Number(l.dataset.id))));
+
+  // Suppression définitive, confirmée. Le serveur garde les prospects déjà contactés par email (leur historique sert aux quotas et aux relances).
+  async function supprimer(ids) {
+    if (!ids.length) return;
+    const quoi = ids.length === 1 ? "ce prospect" : ids.length + " prospects";
+    if (!confirm("Supprimer définitivement " + quoi + " ?\n\nSes messages et son journal de contact disparaissent aussi. "
+      + "Un nouveau scan pourra le retrouver : pour l'écarter sans l'oublier, utilise « Ignorer ».\n"
+      + "Les prospects déjà contactés par email sont conservés.")) return;
+    try {
+      const r = await api("/api/prospects/supprimer", { method: "POST", body: JSON.stringify({ prospect_ids: ids }) });
+      const refuses = r.refuses.contactes + r.refuses.tache_en_cours + r.refuses.introuvables;
+      if (refuses) {
+        const raisons = [];
+        if (r.refuses.contactes) raisons.push(r.refuses.contactes + " déjà contacté(s) par email (conservés)");
+        if (r.refuses.tache_en_cours) raisons.push(r.refuses.tache_en_cours + " dans une campagne où une tâche est en cours");
+        if (r.refuses.introuvables) raisons.push(r.refuses.introuvables + " introuvable(s)");
+        afficherErreur(r.supprimes + " supprimé(s). Non supprimés : " + raisons.join(", ") + ".");
+      }
+      if (r.supprimes) {
+        if (!refuses) window.location.reload();
+        else setTimeout(() => window.location.reload(), 3500);
+      }
+    } catch (_) { /* bannière affichée */ }
+  }
 
   async function changerStatut(ids, statut) {
     try {

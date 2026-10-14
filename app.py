@@ -416,6 +416,15 @@ def create_app():
         except ValueError as erreur:
             return jsonify(erreur=str(erreur)), 400
 
+    @app.post("/api/prospects/supprimer")
+    def api_prospects_supprimer():
+        """Supprime définitivement des prospects (un seul ou plusieurs) ; les déjà contactés par email sont conservés."""
+        ids = (request.get_json(silent=True) or {}).get("prospect_ids") or []
+        if not isinstance(ids, list) or not ids:
+            return jsonify(erreur="Aucun prospect à supprimer."), 400
+        with db.connexion() as conn:
+            return jsonify(campagnes_mod.supprimer_prospects(conn, ids))
+
     @app.get("/api/prospects/<int:prospect_id>/messages")
     def api_prospect_messages(prospect_id):
         with db.connexion() as conn:

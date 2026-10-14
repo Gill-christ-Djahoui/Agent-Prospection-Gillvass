@@ -210,6 +210,12 @@ def acces_et_ecrans():
     r = client.post("/api/social/99999/ignorer", json={})
     verifier("écarter un prospect inconnu depuis les messages privés : 400 avec message ; le bouton existe dans l'écran",
              r.status_code == 400 and 'id="fs-ignorer"' in page, r.status_code)
+    r = client.post("/api/prospects/supprimer", json={"prospect_ids": [99999]})
+    verifier("suppression de prospects : liste vide refusée (400), prospect inconnu signalé sans erreur, refusée sans connexion (401) ; boutons présents",
+             client.post("/api/prospects/supprimer", json={"prospect_ids": []}).status_code == 400
+             and r.status_code == 200 and r.get_json() == {"supprimes": 0, "refuses": {"contactes": 0, "tache_en_cours": 0, "introuvables": 1}}
+             and application.test_client().post("/api/prospects/supprimer", json={"prospect_ids": [1]}).status_code == 401
+             and 'id="btn-supprimer-lot"' in client.get("/prospects").get_data(as_text=True))
     verifier("messages privés sans connexion : refusés (401)",
              application.test_client().get("/api/social/file").status_code == 401
              and application.test_client().post(f"/api/social/{pid}/resultat", json={"resultat": "envoye"}).status_code == 401)
