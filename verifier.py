@@ -207,6 +207,9 @@ def acces_et_ecrans():
              and client.get(f"/api/social/{pid}").get_json()["historique"][0]["note"] == "Instagram", r.status_code)
     r = client.post(f"/api/social/{pid}/message", json={})
     verifier("message privé sans IA configurée : message clair (400)", r.status_code == 400 and "Réglages" in r.get_json()["erreur"], r.status_code)
+    r = client.post("/api/social/99999/ignorer", json={})
+    verifier("écarter un prospect inconnu depuis les messages privés : 400 avec message ; le bouton existe dans l'écran",
+             r.status_code == 400 and 'id="fs-ignorer"' in page, r.status_code)
     verifier("messages privés sans connexion : refusés (401)",
              application.test_client().get("/api/social/file").status_code == 401
              and application.test_client().post(f"/api/social/{pid}/resultat", json={"resultat": "envoye"}).status_code == 401)

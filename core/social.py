@@ -90,15 +90,23 @@ _REQUETE = """SELECT p.id, p.nom, p.ville, p.site, p.profil_social_url, p.maps_u
                   AND (p.statut <> 'ignore' OR s.id IS NOT NULL){filtre}"""
 
 
-def file(conn, campagne_id=None, etat="faire", limite=500):
+def file(conn, campagne_id=None, etat="faire", limite=500, whatsapp=None, profil=None):
     """Prospects à contacter en message privé : sans email, avec un profil connu ou sans autre moyen écrit (formulaire). Du
-    score le plus haut au plus bas. Renvoie {'lignes', 'compteurs', 'total'} ; les compteurs portent sur la campagne choisie."""
+    score le plus haut au plus bas. Renvoie {'lignes', 'compteurs', 'total'} ; les compteurs portent sur la campagne et les
+    filtres de canal choisis, pas sur l'état. `whatsapp` et `profil` valent « oui » (seulement ceux qui l'ont), « non »
+    (seulement ceux qui ne l'ont pas) ou rien (tous) : on traite d'abord tous les WhatsApp, puis tous les profils."""
     filtre, valeurs = (" AND p.campagne_id = ?", [int(campagne_id)]) if campagne_id else ("", [])
     reseaux = db.reglage_json(conn, "domaines_reseaux")
-    lignes = [dict(l) for l in conn.execute(_REQUETE.format(filtre=filtre), valeurs)]
+    seuil = int(db.get_reglage(conn, "score_min_generation", "0") or 0)  # le même seuil que pour les emails (Réglages)
+    lignes = [dict(l) for l in conn.execute(_REQUETE.format(filtre=filtre), valeurs)
+              if l["score"] >= seuil or l["dernier_resultat"] is not None]  # un commerce déjà contacté reste visible
     compteurs = {cle: 0 for cle in ETATS}
     gardees, cache = [], {}
+    indicatif, prefixes = db.get_reglage(conn, "whatsapp_indicatif", ""), db.reglage_json(conn, "whatsapp_prefixes_mobiles")
     for l in lignes:
+        l["whatsapp"] = numero_whatsapp(l["telephone"], indicatif, prefixes)
+        if (whatsapp in ("oui", "non") and bool(l["whatsapp"]) != (whatsapp == "oui"))                 or (profil in ("oui", "non") and bool(l["profil_social_url"]) != (profil == "oui")):
+            continue
         l["etat"] = etat_de(l["dernier_resultat"])
         compteurs[l["etat"]] += 1
         if etat not in ETATS or l["etat"] == etat:
@@ -110,7 +118,6 @@ def file(conn, campagne_id=None, etat="faire", limite=500):
         l["score_affiche"] = min(l["score"], scorer.PLAFOND_AFFICHAGE)
         l["a_message"] = bool(l.pop("message_social"))
         l["dernier_libelle"] = RESULTATS.get(l["dernier_resultat"])
-        l["whatsapp"] = _whatsapp_du_prospect(conn, l["telephone"])
         l["liens"] = _liens(l, reseaux, l["whatsapp"])
     return {"lignes": gardees[:limite], "compteurs": compteurs, "total": len(gardees)}
 
@@ -152,6 +159,16 @@ def enregistrer_profil(conn, prospect_id, url):
     if conn.execute("UPDATE prospects SET profil_social_url = ? WHERE id = ?", (url or None, prospect_id)).rowcount == 0:
         raise ErreurSocial("Prospect introuvable.")
     return {"profil_social_url": url or None}
+
+
+def ignorer(conn, prospect_id):
+    """Écarte un établissement qui n'est pas une cible (hors niche, déjà un bon site…) : statut « ignoré », il quitte la file.
+    Ne dit rien de son envie d'être contacté : pour un vrai refus, noter « pas intéressé »."""
+    if conn.execute("SELECT 1 FROM prospects WHERE id = ?", (prospect_id,)).fetchone() is None:
+        raise ErreurSocial("Prospect introuvable.")
+    modifies = db.changer_statut(conn, [prospect_id], "ignore")["modifies"]
+    journal.info("prospect %s écarté depuis les messages privés", prospect_id)
+    return {"ignore": bool(modifies)}
 
 
 def noter(conn, prospect_id, resultat, note=None):
@@ -207,7 +224,7 @@ def _autotests():
              and "site%3Afacebook.com+OR+site%3Ainstagram.com" in lien_recherche("Chez Léa", "Tours", ["facebook.com", "instagram.com"])
              and "%22Chez+L%C3%A9a%22+Tours" in lien_recherche("Chez Léa", "Tours", ["facebook.com", "instagram.com"]))
 
-    reponse = "Bonjour,\n\nJe suis Gill, développeur web.\n\nVotre boutique n'a pas de site internet.\n\nPuis-je vous montrer un exemple ?\n\nGill,\nDéveloppeur web"
+    reponse = "Bonjour,\n\nJe suis Gill, développeur web.\n\nVotre boutique n'a pas de site internet.\n\nPuis-je vous montrer un exemple ?\n\nGill"
     comportement = {"prompts": []}
     ia_reelle = writer.appeler_ia
 
@@ -237,6 +254,7 @@ def _autotests():
                     c.execute("UPDATE prospects SET score = ?, problemes = ?, statut = ?, profil_social_url = ?, formulaire_url = ? WHERE id = ?",
                               (score, json.dumps(problemes), statut, profil, form, pid))
                     return pid
+                bas = ajouter("L score bas", "https://www.facebook.com/l", None, None, None, 2, ["pas_h1"])
                 a = ajouter("A profil", "https://www.facebook.com/a", "https://maps.google.com/a", None, None, 9, ["sans_site"])
                 b = ajouter("B sans rien", None, "https://maps.google.com/b", None, None, 9, ["sans_site"])
                 e = ajouter("E email", "https://www.facebook.com/e", None, None, "e@e.fr", 9, ["sans_site"])
@@ -247,6 +265,19 @@ def _autotests():
                 c.execute("UPDATE prospects SET telephone = '02 47 00 00 00' WHERE id = ?", (a,))  # fixe : pas de WhatsApp
 
                 q = file(c)
+                verifier("file : un prospect sous le seuil de score (Réglages) n'y figure pas, même avec un profil", "L score bas" not in [l["nom"] for l in q["lignes"]])
+                tous_wa = file(c, whatsapp="oui")["lignes"]
+                verifier("filtre WhatsApp : « oui » = seulement les mobiles, « non » = les autres ; combiné au profil",
+                         [l["nom"] for l in tous_wa] == ["B sans rien"]
+                         and "B sans rien" not in [l["nom"] for l in file(c, whatsapp="non")["lignes"]]
+                         and [l["nom"] for l in file(c, profil="oui")["lignes"]] == ["A profil", "G formulaire et profil"]
+                         and [l["nom"] for l in file(c, whatsapp="non", profil="oui")["lignes"]] == ["A profil", "G formulaire et profil"]
+                         and file(c, whatsapp="oui", profil="oui")["total"] == 0 and file(c, whatsapp="oui")["compteurs"]["faire"] == 1)
+                r = ignorer(c, g)
+                verifier("écarter une non-cible : statut « ignoré », il quitte la file (aucun journal) ; prospect inconnu refusé",
+                         r == {"ignore": True} and "G formulaire et profil" not in [l["nom"] for l in file(c, etat="tous")["lignes"]]
+                         and "introuvable" in str(leve(ignorer, c, 9999)))
+                c.execute("UPDATE prospects SET statut = 'qualifie' WHERE id = ?", (g,))
                 verifier("file : sans email, profil connu ou aucun autre moyen écrit ; un formulaire seul va dans Formulaires ; ignorés exclus ; "
                          "profil connu d'abord à score égal",
                          [l["nom"] for l in q["lignes"]] == ["A profil", "B sans rien", "G formulaire et profil"] and q["compteurs"]["faire"] == 3)
@@ -297,7 +328,8 @@ def _autotests():
             verifier("message : prompt « message privé » avec le vrai problème, l'angle de la niche et la signature ; enregistré dans sa propre colonne",
                      "message privé" in prompt and "- Aucun site web" in prompt and "Angle : un client cherche les horaires" in prompt
                      and "{angle}" not in prompt and "{signature}" not in prompt and enregistre == texte and colonne_formulaire is None)
-            verifier("message : une seule signature, à la fin", texte.count("Développeur web") == 1 and texte.endswith("Développeur web"))
+            verifier("message privé : signé du prénom seul, une seule fois, à la fin (pas la signature longue des emails)",
+                     texte.endswith("\n\nGill") and texte.count("Développeur web") == 0 and texte.count("\n\nGill") == 1)
             with db.connexion() as c:
                 enregistrer_message(c, a, "  Mon message corrigé.  ")
                 verifier("message corrigé à la main : enregistré rogné ; vide : supprimé ; trop long : refusé",

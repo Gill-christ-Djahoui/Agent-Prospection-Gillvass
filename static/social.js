@@ -19,7 +19,9 @@ function initialiserSocial() {
   let ids = [];
   let resultat = null;
 
-  const filtres = () => new URLSearchParams({ campagne: champ("f-campagne").value, etat: champ("f-etat").value }).toString();
+  const filtres = () => new URLSearchParams({
+    campagne: champ("f-campagne").value, etat: champ("f-etat").value,
+    whatsapp: champ("f-whatsapp").value, profil: champ("f-profil").value }).toString();
 
   function erreursChamps(portee, erreurs) {
     portee.querySelectorAll("[data-erreur-pour]").forEach((p) => { p.hidden = true; p.textContent = ""; });
@@ -184,6 +186,23 @@ function initialiserSocial() {
     b.addEventListener("click", () => choisirResultat(b.dataset.resultat)));
   champ("fs-fermer").addEventListener("click", () => { fenetre.close(); charger(); });
 
+  champ("fs-ignorer").addEventListener("click", async () => {
+    const id = courant.id;
+    try {
+      await api(`/api/social/${id}/ignorer`, { method: "POST", silencieux: true, body: "{}" });
+    } catch (e) {
+      afficherResultat(champ("fs-etat-resultat"), "erreur", e.message);
+      return;
+    }
+    toast("Écarté : il ne sera plus proposé.", "info", 2500);
+    const apres = ids.slice(ids.indexOf(id) + 1);
+    let donnees;
+    try { donnees = await api("/api/social/file?" + filtres()); } catch (_) { fenetre.close(); return; }
+    dessiner(donnees);
+    const suivant = apres.find((x) => ids.includes(x));
+    if (suivant) ouvrirFiche(suivant); else fenetre.close();
+  });
+
   champ("fs-enregistrer-profil").addEventListener("click", async () => {
     const sortie = champ("fs-etat-profil");
     erreursChamps(fenetre, {});
@@ -269,7 +288,7 @@ function initialiserSocial() {
     if (suivant) ouvrirFiche(suivant); else fenetre.close();
   });
 
-  ["f-campagne", "f-etat"].forEach((id) => champ(id).addEventListener("change", charger));
+  ["f-campagne", "f-etat", "f-whatsapp", "f-profil"].forEach((id) => champ(id).addEventListener("change", charger));
   charger();
 }
 

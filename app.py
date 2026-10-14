@@ -541,7 +541,8 @@ def create_app():
     @app.get("/api/social/file")
     def api_social_file():
         with db.connexion() as conn:
-            return jsonify(social_mod.file(conn, request.args.get("campagne") or None, request.args.get("etat", "faire")))
+            return jsonify(social_mod.file(conn, request.args.get("campagne") or None, request.args.get("etat", "faire"),
+                                           whatsapp=request.args.get("whatsapp"), profil=request.args.get("profil")))
 
     @app.get("/api/social/<int:prospect_id>")
     def api_social_fiche(prospect_id):
@@ -564,6 +565,11 @@ def create_app():
         with db.connexion() as conn:
             social_mod.enregistrer_message(conn, prospect_id, (request.get_json(silent=True) or {}).get("message"))
         return jsonify(ok=True)
+
+    @app.post("/api/social/<int:prospect_id>/ignorer")
+    def api_social_ignorer(prospect_id):
+        with db.connexion() as conn:
+            return jsonify(social_mod.ignorer(conn, prospect_id))
 
     @app.post("/api/social/<int:prospect_id>/resultat")
     def api_social_resultat(prospect_id):

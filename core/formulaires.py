@@ -55,7 +55,9 @@ def file(conn, campagne_id=None, etat="faire", limite=500):
     """Prospects à contacter par formulaire, du score le plus haut au plus bas. Renvoie {'lignes', 'compteurs', 'total'} ;
     les compteurs portent sur la campagne choisie, pas sur l'état."""
     filtre, valeurs = (" AND p.campagne_id = ?", [int(campagne_id)]) if campagne_id else ("", [])
-    lignes = [dict(l) for l in conn.execute(_REQUETE.format(filtre=filtre), valeurs)]
+    seuil = int(db.get_reglage(conn, "score_min_generation", "0") or 0)  # le même seuil que pour les emails (Réglages)
+    lignes = [dict(l) for l in conn.execute(_REQUETE.format(filtre=filtre), valeurs)
+              if l["score"] >= seuil or l["dernier_resultat"] is not None]  # un site déjà contacté reste visible
     compteurs = {cle: 0 for cle in ETATS}
     gardees, cache = [], {}
     for l in lignes:
@@ -114,6 +116,8 @@ def generer_message(cfg, prospect_id, canal="formulaire"):
         raise ErreurFormulaire("Aucun problème concret détecté pour ce prospect : un message sans problème réel à citer serait inventé.")
     signature = ((modele["signature"] if modele else "") or "").strip() or (cfg.get("signature_defaut") or "").strip() \
         or cfg["expediteur_nom"].strip()
+    if canal == "social":  # un message privé se signe de son prénom, comme un vrai message
+        signature = cfg["expediteur_nom"].strip()
     systeme = writer.rendre(cfg[cle_prompt], {
         "nom": p["nom"], "ville": p["ville"] or "", "secteur": campagne["secteur"], "score": min(p["score"], scorer.PLAFOND_AFFICHAGE),
         "problemes": "\n".join(f"- {x}" for x in problemes), "site": p["site"] or "aucun site web connu", "reputation": writer.reputation(p),
@@ -231,11 +235,12 @@ def _autotests():
                               (score, json.dumps(problemes), statut, "https://" + nom[:1].lower() + ".fr", form, pid))
                     return pid
                 a = ajouter("A", "https://a.fr/contact", None, 9, ["pas_rdv", "site_inconnu"])
-                b = ajouter("B", "https://b.fr/contact", None, 4, ["pas_h1"])
+                b = ajouter("B", "https://b.fr/contact", None, 6, ["pas_h1"])
+                ajouter("Bas", "https://bas.fr/contact", None, 2, ["pas_h1"])
                 e = ajouter("E avec email", "https://e.fr/contact", "e@e.fr", 8, ["pas_h1"])
                 s = ajouter("S sans formulaire", None, None, 8, ["pas_h1"])
                 i = ajouter("I ignoré", "https://i.fr/contact", None, 8, ["pas_h1"], statut="ignore")
-                n = ajouter("N nouveau", "https://n.fr/contact", None, 0, [], statut="nouveau")
+                n = ajouter("N nouveau", "https://n.fr/contact", None, 5, [], statut="nouveau")
 
                 f = file(c)
                 verifier("file : seulement les prospects avec un formulaire ET sans email, ni ignorés, du score le plus haut au plus bas",

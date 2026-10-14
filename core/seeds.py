@@ -127,6 +127,7 @@ Règles impératives :
 - Langage de tous les jours : aucun terme technique, aucun mot anglais.
 - Aucun mot de vente (gratuit, offre, promotion, remise, garantie, urgent, opportunité, améliorer, booster, optimiser, visibilité, solution, performant, digital), aucun point d'exclamation, aucun emoji, aucun lien. Ne cite aucun prix.
 - Termine par UNE question facile, à laquelle on répond par oui ou non, qui ne demande aucun engagement. Elle ne contient jamais « discuter », « échanger », « rendez-vous », « appel » ni « oui ou non ».
+- Ne propose ton exemple qu'une seule fois, dans la question finale : aucune autre phrase d'offre avant elle (jamais « je serais ravi de… », « je peux vous partager… »).
 - Commence par « Bonjour, » (jamais un prénom). Demande poliment, à la fin, de transmettre ce message à la personne qui s'occupe du site.
 - N'invente jamais un chiffre, un client ou une référence.
 - Écris uniquement le message, sans objet, puis termine par cette signature, telle quelle :
@@ -136,7 +137,7 @@ Règles impératives :
 
 # Message privé à envoyer à la main sur Facebook, Instagram… (canal « Messages privés »). Variables : {expediteur} {nom}
 # {ville} {secteur} {site} {problemes} {score} {angle} {signature}.
-_PROMPT_SOCIAL = """Tu es {expediteur}, développeur web freelance. Tu écris en français le message privé que tu vas envoyer sur Facebook, Instagram ou WhatsApp à {nom}, établissement du secteur « {secteur} » situé à {ville}. La personne qui le lira ne te connaît pas et le lira sur son téléphone. Écris comme une vraie personne polie, pas comme une entreprise qui prospecte.
+_PROMPT_SOCIAL = """Tu es {expediteur}, développeur web freelance. Tu écris en français un message privé (Facebook, Instagram ou WhatsApp) à {nom}, établissement du secteur « {secteur} » situé à {ville}. La personne ne te connaît pas et le lira sur son téléphone. Ce n'est pas un message de vente : c'est une prise de contact sincère, comme le ferait une personne curieuse et polie. Tu ne cherches pas à vendre dans ce message, seulement à savoir si le sujet l'intéresse.
 
 Ce que tu sais de cet établissement :
 - Site : {site}
@@ -144,22 +145,23 @@ Ce que tu sais de cet établissement :
 {problemes}
 - Fiche Google : {reputation}
 
-Règles impératives :
-- Entre 45 et 75 mots au total.
-- Écris 3 ou 4 paragraphes très courts (1 ou 2 phrases chacun), séparés par une ligne vide. Chaque phrase fait 15 mots au maximum.
-- Écris à la première personne (« je »), au vouvoiement. Jamais « nous », jamais « notre équipe ».
-- Après la salutation, dis en une phrase simple qui tu es et que tu as trouvé leur établissement sur Google (c'est vrai). N'invente aucune histoire (« je passais devant », « on m'a parlé de vous »).
-- Si la fiche Google indique une note d'au moins 4,3 sur 5 avec au moins 20 avis, dis-le en une phrase naturelle, comme à l'oral, avec la vraie note et le vrai nombre d'avis (par exemple « Vos 100 avis à 4,9 sur 5 parlent pour vous » ou « 4,9 sur 5 sur 100 avis : vos clients vous apprécient »). Varie la formulation, et n'écris jamais « c'est beau », « votre fiche Google indique » ni « grâce à ». Sinon, ne fais aucun compliment : jamais de flatterie générique.
-- Fais ensuite UNE observation sur ce que tu as constaté (un seul des problèmes listés), dite calmement, comme un constat entre voisins. N'écris aucune phrase sur les conséquences du problème (jamais de clients qui partent, abandonnent ou vont chez un concurrent, jamais de concurrence) : dis plutôt, en quelques mots, que c'est un point simple à régler. N'affirme rien d'autre sur leur établissement.
-- Langage de tous les jours : aucun terme technique, aucun mot anglais.
-- Aucun mot de vente (gratuit, offre, promotion, remise, garantie, urgent, opportunité, améliorer, booster, optimiser, visibilité, solution, performant, digital), aucun point d'exclamation, aucun emoji, aucun lien. Ne cite aucun prix.
-- Termine par UNE question facile, à laquelle on répond par oui ou non, qui ne demande aucun engagement. Elle ne contient jamais « discuter », « échanger », « rendez-vous », « appel » ni « oui ou non ».
-- Commence par « Bonjour, » (jamais un prénom).
-- Juste avant la signature, ajoute une phrase courte pour se retirer, par exemple « Si vous préférez que je ne vous écrive plus, dites-le-moi simplement. ».
-- N'invente jamais un chiffre, un client ou une référence.
-- Écris uniquement le message, sans objet, puis termine par cette signature, telle quelle :
+Forme du message (4 courts paragraphes séparés par une ligne vide, 45 à 75 mots au total, phrases de 15 mots au maximum) :
+1. « Bonjour, » seul sur sa ligne.
+2. Dis que tu t'appelles {expediteur}, que tu es développeur web, et que tu as trouvé leur établissement sur Google. Si la fiche Google montre une note d'au moins 4,3 sur 5 avec au moins 5 avis, ajoute que leurs avis t'ont donné envie de leur écrire (avec la vraie note, sans mot exagéré). Sinon, aucun compliment.
+3. Pose UNE vraie question, simple et sincère : demande s'ils ont déjà pensé à avoir un petit site avec leurs horaires et leurs photos, ou si ce n'est pas un sujet pour eux. S'ils ont déjà un site avec un problème listé, dis ce que tu as remarqué en une phrase calme, puis demande s'ils le savaient.
+4. Une phrase pour se retirer : si ça ne les intéresse pas, aucun souci, qu'ils te le disent et tu ne les dérangeras plus.
+Termine par cette signature, telle quelle :
 {signature}
 
+Règles impératives :
+- Première personne (« je »), vouvoiement. Jamais « nous ».
+- N'offre rien et ne promets rien : jamais d'exemple, d'aperçu, de maquette, de devis ni de rendez-vous, même si le contexte ci-dessous le suggère. Jamais de prix.
+- Ni conséquence dramatique, ni concurrence, ni clients perdus.
+- Aucun mot de vente (gratuit, offre, promotion, remise, garantie, urgent, opportunité, améliorer, booster, optimiser, visibilité, solution, performant, digital), aucun point d'exclamation, aucun emoji, aucun lien, aucun terme technique, aucun mot anglais.
+- N'invente rien : aucune histoire, aucun chiffre, aucun client, aucune référence. Ne cite que ce qui est dans la liste ci-dessus.
+- Écris uniquement le message.
+
+Contexte du secteur (pour comprendre l'établissement, jamais pour vendre) :
 {angle}"""
 
 REGLAGES = [
@@ -235,7 +237,7 @@ REGLAGES = [
     ("mots_interdits_message", json.dumps([
         "visibilit", "concurren", "gratuit", "offre ", "offres", "promotion", "remise", "garantie", "urgen", "opportunit",
         "améliorer", "amélioration", "booster", "optimis", "solution", "performan", "digital", "discuter", "échanger",
-        "perdre", "perdez", "abandonn", "rentabilis", "boost", "leader", "incontournable",
+        "perdre", "perdez", "abandonn", "rentabilis", "boost", "leader", "incontournable", "ravi", "aperçu", "maquette",
     ], ensure_ascii=False), 0),
     # Réseaux sociaux reconnus : un « site » qui en est un est le profil du commerce (canal Messages privés), et les liens
     # vers ces réseaux trouvés sur un site sont retenus comme profil.
@@ -381,6 +383,7 @@ Règles impératives :
 - Les avis Google sont ceux de la fiche Google de l'établissement, jamais ceux de son site.
 - N'affirme jamais qu'un service existe (prise de rendez-vous en ligne, paiement…) : appuie-toi uniquement sur les problèmes listés.
 - Termine par UNE question facile, à laquelle on répond par oui ou non, qui ne demande aucun engagement. Elle ne contient jamais « discuter », « échanger », « rendez-vous », « appel » ni « oui ou non ».
+- Ne propose ton exemple qu'une seule fois, dans la question finale : aucune autre phrase d'offre avant elle (jamais « je serais ravi de… », « je peux vous partager… »).
 - {regle_salutation}
 - N'invente jamais un chiffre, un client ou une référence.
 - Écris uniquement le corps du message, sans objet, puis termine par cette signature, telle quelle :
@@ -488,9 +491,7 @@ ANGLES_CATALOGUE = [
      "aucune cause technique."),
     ("Commerces de proximité", "{nom} : vos horaires en ligne", "aucun",
      "Angle : aujourd'hui, avant de pousser la porte d'un commerce, on regarde sur son téléphone les horaires, "
-     "l'adresse et quelques photos. Fais simplement le constat du problème, sans conséquence dramatique. Pour la "
-     "question finale, demande si la personne serait d'accord que tu lui montres un petit exemple de ce que ça "
-     "pourrait donner pour son commerce."),
+     "l'adresse et quelques photos. Fais simplement le constat du problème, sans conséquence dramatique."),
     ("Artisans et services à domicile", "{nom} : vos demandes de devis", "aucun",
      "Angle : quelqu'un qui cherche un artisan appelle souvent le premier qui inspire confiance. Relie le problème "
      "constaté à des demandes de devis qui vont chez un concurrent mieux présenté. Ne promets aucun résultat."),
@@ -564,7 +565,7 @@ def _installer_catalogue_angles(conn):
 
 
 _ANCIENNES_REGLES_QUESTION = ("Termine par une question courte et ouverte", "Termine par UNE question facile")
-_MARQUE_A_JOUR = "parlent pour vous"  # présent dans la version actuelle des consignes
+_MARQUE_A_JOUR = "une seule fois, dans la question finale"  # présent dans la version actuelle des consignes
 
 
 def _a_moderniser(prompt):
@@ -583,8 +584,15 @@ def _moderniser_prompts(conn):
         angle = prompt[prompt.rindex("Angle :"):].strip()
         salutation = next((r for r in _REGLES_SALUTATION if r in prompt), REGLE_SALUTATION_DEFAUT)
         conn.execute("UPDATE modeles_message SET prompt_systeme = ? WHERE id = ?", (composer_prompt(angle, salutation), ligne[0]))
+    ligne = conn.execute("SELECT valeur FROM reglages WHERE cle = 'mots_interdits_message'").fetchone()
+    if ligne and ligne[0]:
+        mots = json.loads(ligne[0])
+        manquants = [m for m in ("ravi", "aperçu", "maquette") if m not in mots]
+        if manquants:
+            conn.execute("UPDATE reglages SET valeur = ? WHERE cle = 'mots_interdits_message'",
+                         (json.dumps(mots + manquants, ensure_ascii=False),))
     ligne = conn.execute("SELECT valeur FROM reglages WHERE cle = 'prompt_social'").fetchone()
-    if ligne and ligne[0] and _MARQUE_A_JOUR in ligne[0] and "pour se retirer" not in ligne[0]:  # ajout de la phrase de retrait
+    if ligne and ligne[0] and "prise de contact sincère" not in ligne[0]:  # message d'approche sans offre (v. du 13/10)
         conn.execute("UPDATE reglages SET valeur = ? WHERE cle = 'prompt_social'", (_PROMPT_SOCIAL,))
     for cle, neuf in (("prompt_formulaire", _PROMPT_FORMULAIRE), ("prompt_social", _PROMPT_SOCIAL)):
         ligne = conn.execute("SELECT valeur FROM reglages WHERE cle = ?", (cle,)).fetchone()

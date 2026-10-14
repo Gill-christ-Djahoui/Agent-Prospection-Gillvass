@@ -11,6 +11,20 @@
       {% for c in campagnes %}<option value="{{ c.id }}">{{ c.nom }}</option>{% endfor %}
     </select>
   </label>
+  <label>WhatsApp
+    <select id="f-whatsapp">
+      <option value="">Tous</option>
+      <option value="oui">Avec WhatsApp (mobile)</option>
+      <option value="non">Sans WhatsApp</option>
+    </select>
+  </label>
+  <label>Facebook / Instagram
+    <select id="f-profil">
+      <option value="">Tous</option>
+      <option value="oui">Avec un profil connu</option>
+      <option value="non">Sans profil connu</option>
+    </select>
+  </label>
   <label>État
     <select id="f-etat">
       {% for code, libelle in etats.items() %}<option value="{{ code }}">{{ libelle }}</option>{% endfor %}
@@ -77,6 +91,7 @@
     <div class="actions">
       <button type="button" class="bouton" id="fs-valider" disabled>Enregistrer et passer au suivant</button>
       <button type="button" class="secondaire" id="fs-fermer">Fermer</button>
+      <button type="button" class="secondaire" id="fs-ignorer" title="Pas un commerce visé, ou il a déjà un bon site : il sort de la liste, sans être noté comme un refus">Pas une cible : l'ignorer</button>
       <span class="resultat" id="fs-etat-resultat" role="status"></span>
     </div>
 
